@@ -4,7 +4,7 @@ funciones -> funcion funciones
 funciones -> ε
 
 funcion -> tipo ID funcion_rest
-funcion -> main LPAREN RPAREN bloque
+funcion -> MAIN LPAREN RPAREN bloque
 funcion_rest -> inicializacion SEMI
 funcion_rest -> LPAREN parametros RPAREN bloque
 

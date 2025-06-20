@@ -64,7 +64,6 @@ def t_FLOAT_NUM(t):
 
 def t_INT_NUM(t):
     r'\d+'
-    t.type = 'NUMERO'
     t.value = int(t.value)
     return t
 

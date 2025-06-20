@@ -34,6 +34,7 @@ def cargar_tabla_sintactica(ruta_archivo):
             for i, accion in enumerate(fila[1:]):
                 terminal = terminales[i]
                 tabla[no_terminal][terminal] = accion.strip()
+
     return tabla, terminales
 
 
@@ -57,8 +58,10 @@ def ejecutar_lexer(contenido):
 # === Analizador Bottom-Up (LL(1)) con construcción de AST ===
 def analizar_cadena(tabla, tokens, terminales, contenido):
     stack = [('$', None)]
-    root = list(tabla.keys())[0]
+    root = list(tabla.keys())[-2]
     stack.append((root, None))
+    
+    print(root)
 
     entrada = [{'token': t['type'], 'value': t['value'], 'pos': t['lexpos'], 'lineno': t['lineno']} for t in tokens]
     # Añadir el token de fin de cadena ($)
@@ -164,12 +167,13 @@ def main():
 
     # Ejecutar lexer y obtener tokens
     tokens = ejecutar_lexer(contenido)
-
+        
     # Cargar gramática
-    tabla, terminales = cargar_tabla_sintactica("tabla.csv")
-
+    tabla, terminales = cargar_tabla_sintactica("tabla_sintactica.csv")
+    
     # Analizar cadena
     historial, aceptado, error_info, ast = analizar_cadena(tabla, tokens, terminales, contenido)
+
     # Mostrar resultados
     if aceptado:
         print("✅ La cadena es sintácticamente correcta.")
