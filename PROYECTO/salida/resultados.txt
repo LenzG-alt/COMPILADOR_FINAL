@@ -1,0 +1,30 @@
+Token: INT, Valor: 'int', Línea: 1, Posición: 0
+Token: ID, Valor: 'hola', Línea: 1, Posición: 4
+Token: SEMI, Valor: ';', Línea: 1, Posición: 8
+Token: MAIN, Valor: 'main', Línea: 3, Posición: 11
+Token: LPAREN, Valor: '(', Línea: 3, Posición: 15
+Token: RPAREN, Valor: ')', Línea: 3, Posición: 16
+Token: LBRACE, Valor: '{', Línea: 3, Posición: 18
+Token: INT, Valor: 'int', Línea: 4, Posición: 24
+Token: ID, Valor: 'x', Línea: 4, Posición: 28
+Token: EQUALS, Valor: '=', Línea: 4, Posición: 30
+Token: INT_NUM, Valor: '5', Línea: 4, Posición: 32
+Token: SEMI, Valor: ';', Línea: 4, Posición: 33
+Token: IF, Valor: 'if', Línea: 5, Posición: 39
+Token: LPAREN, Valor: '(', Línea: 5, Posición: 42
+Token: ID, Valor: 'x', Línea: 5, Posición: 43
+Token: GT, Valor: '>', Línea: 5, Posición: 45
+Token: INT_NUM, Valor: '0', Línea: 5, Posición: 47
+Token: RPAREN, Valor: ')', Línea: 5, Posición: 48
+Token: LBRACE, Valor: '{', Línea: 5, Posición: 50
+Token: PRINT, Valor: 'print', Línea: 6, Posición: 60
+Token: LPAREN, Valor: '(', Línea: 6, Posición: 65
+Token: STRING_LITERAL, Valor: 'Positivo', Línea: 6, Posición: 66
+Token: RPAREN, Valor: ')', Línea: 6, Posición: 76
+Token: SEMI, Valor: ';', Línea: 6, Posición: 77
+Token: RBRACE, Valor: '}', Línea: 7, Posición: 83
+Token: RBRACE, Valor: '}', Línea: 8, Posición: 85
+
+Resumen:
+Tokens encontrados: 26
+Errores léxicos detectados: 0
