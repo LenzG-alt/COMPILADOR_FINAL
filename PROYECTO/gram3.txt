@@ -1,0 +1,109 @@
+programa -> funciones
+
+funciones -> funcion funciones
+funciones -> ε
+
+funcion -> tipo ID funcion_rest
+funcion -> main ( ) bloque
+funcion_rest -> inicializacion ;
+funcion_rest -> ( parametros ) bloque
+
+parametros -> parametro parametros_rest
+parametros -> ε
+
+parametros_rest -> , parametro parametros_rest
+parametros_rest -> ε
+
+parametro -> tipo ID
+
+bloque -> { instrucciones }
+
+instrucciones -> instruccion instrucciones
+instrucciones -> ε
+
+instruccion -> declaracion ;
+instruccion -> asignacion ;
+instruccion -> If
+instruccion -> While
+instruccion -> For
+instruccion -> Return
+instruccion -> Print
+
+declaracion -> tipo ID inicializacion 
+
+inicializacion -> = exp 
+inicializacion -> ε
+
+asignacion -> ID = exp 
+
+If -> if ( exp ) bloque Else
+
+Else -> else bloque
+Else -> ε
+
+While -> while ( exp ) bloque
+
+For -> for ( asignacion ; exp ; asignacion ) bloque
+
+Return -> return exp_opt ;
+
+exp_opt -> exp
+exp_opt -> ε
+
+Print -> print ( exp ) ;
+
+tipo -> int
+tipo -> float
+tipo -> bool
+tipo -> string
+tipo -> void
+
+exp -> E
+
+E -> C E_rest
+
+E_rest -> || C E_rest
+E_rest -> ε
+
+C -> R C_rest
+
+C_rest -> && R C_rest
+C_rest -> ε
+
+R -> T R_rest
+
+R_rest -> == T R_rest
+R_rest -> != T R_rest
+R_rest -> < T R_rest
+R_rest -> > T R_rest
+R_rest -> <= T R_rest
+R_rest -> >= T R_rest
+R_rest -> ε
+
+T -> F T_rest
+
+T_rest -> + F T_rest
+T_rest -> - F T_rest
+T_rest -> ε
+
+F -> A F_rest
+
+F_rest -> * A F_rest
+F_rest -> / A F_rest
+F_rest -> % A F_rest
+F_rest -> ε
+
+A -> ( exp )
+A -> ID llamada_func
+A -> NUMERO
+A -> true
+A -> false
+
+llamada_func -> ( lista_args )
+llamada_func -> ε
+
+lista_args -> exp lista_args_rest
+lista_args -> ε
+
+lista_args_rest -> , exp lista_args_rest
+lista_args_rest -> ε

@@ -1,6 +1,25 @@
-import csv
-import os
 
+import Lexer  # Ahora importamos nuestro lexer personalizado
+import os
+import csv
+from graphviz import Digraph
+
+# === Clase para nodos del AST ===
+class Node:
+    def __init__(self, value, children=None):
+        self.value = value
+        self.children = children if children else []
+
+    def to_dot(self, dot):
+        node_id = str(id(self))
+        dot.node(node_id, self.value)
+        for child in self.children:
+            child_id = child.to_dot(dot)
+            dot.edge(node_id, child_id)
+        return node_id
+
+
+# === Cargar tabla sintáctica desde CSV ===
 def cargar_tabla_sintactica(ruta_archivo):
     tabla = {}
     with open(ruta_archivo, newline='', encoding='utf-8') as csvfile:
@@ -18,128 +37,147 @@ def cargar_tabla_sintactica(ruta_archivo):
     return tabla, terminales
 
 
-def analizar_cadena(tabla, tokens, terminales):
-    stack = ['$']
-    stack.append(list(tabla.keys())[0])  # Símbolo inicial
+# === Ejecutar Lexer e imprimir tokens (debug opcional) ===
+def ejecutar_lexer(contenido):
+    Lexer.lexer.input(contenido)  # Accedemos al lexer construido en lexer.py
+    tokens = []
+    while True:
+        tok = Lexer.lexer.token()
+        if not tok:
+            break
+        tokens.append({
+            'type': tok.type,
+            'value': tok.value,
+            'lineno': tok.lineno,
+            'lexpos': tok.lexpos
+        })
+    return tokens
 
-    entrada = tokens + ['$']
+
+# === Analizador Bottom-Up (LL(1)) con construcción de AST ===
+def analizar_cadena(tabla, tokens, terminales, contenido):
+    stack = [('$', None)]
+    root = list(tabla.keys())[0]
+    stack.append((root, None))
+
+    entrada = [{'token': t['type'], 'value': t['value'], 'pos': t['lexpos'], 'lineno': t['lineno']} for t in tokens]
+    # Añadir el token de fin de cadena ($)
+    entrada.append({
+        'token': '$',
+        'value': '$',
+        'pos': len(contenido),
+        'lineno': tokens[-1]['lineno'] if tokens else 1
+    })
+    
     paso = 0
     historial = []
     aceptado = True
     error_info = {}
+    nodo_raiz = None
+    pila_nodos = []
 
     while len(stack) > 0:
         paso += 1
-        simbolo_pila = stack[-1]
-        token_entrada = entrada[0]
+        simbolo_pila, nodo_pila = stack[-1]
+        token_entrada = entrada[0]['token']
+        valor_entrada = entrada[0]['value']
 
         accion = ""
         if simbolo_pila == token_entrada:
             accion = f"Coincidir '{simbolo_pila}'"
+            if nodo_pila:
+                pila_nodos.append(nodo_pila)
             stack.pop()
             entrada.pop(0)
         elif simbolo_pila in tabla and token_entrada in tabla[simbolo_pila]:
             regla = tabla[simbolo_pila][token_entrada]
-            if regla == '':  # Celda vacía
+            if regla == '':
                 aceptado = False
                 error_info = {
-                    "token": token_entrada,
-                    "linea": 1,
-                    "columna": tokens.index(token_entrada) + 1 if token_entrada in tokens else 0
+                    "token": valor_entrada,
+                    "linea": entrada[0]['lineno'],
+                    "columna": entrada[0]['pos'] + 1
                 }
                 break
             if regla == 'ε':
                 accion = f"{simbolo_pila} → ε"
+                new_node = Node(simbolo_pila, [Node('ε')])
                 stack.pop()
+                if pila_nodos:
+                    pila_nodos[-1].children.append(new_node)
+                else:
+                    pila_nodos.append(new_node)
             else:
                 accion = f"{simbolo_pila} → {regla}"
-                stack.pop()
                 partes = regla.split()
+                stack.pop()
+                new_children = []
                 for parte in reversed(partes):
-                    if parte != '':  # Evitar espacios vacíos
-                        stack.append(parte)
+                    stack.append((parte, Node(parte)))
+                    new_children.insert(0, stack[-1][1])
+                new_node = Node(simbolo_pila, new_children)
+                if pila_nodos:
+                    pila_nodos[-1].children.append(new_node)
+                else:
+                    pila_nodos.append(new_node)
         else:
             aceptado = False
             error_info = {
-                "token": token_entrada,
-                "linea": 1,
-                "columna": tokens.index(token_entrada) + 1 if token_entrada in tokens else 0
+                "token": valor_entrada,
+                "linea": entrada[0]['lineno'],
+                "columna": entrada[0]['pos'] + 1
             }
             break
 
         historial.append({
             "paso": paso,
-            "pila": ' '.join(stack),
-            "entrada": ' '.join(entrada),
+            "pila": ' '.join([s[0] for s in stack]),
+            "entrada": ' '.join([t['token'] for t in entrada]),
             "accion": accion
         })
 
-        if len(stack) == 1 and stack[0] == '$' and token_entrada == '$':
+        if len(stack) == 1 and stack[0][0] == '$' and token_entrada == '$':
             break
 
-    return historial, aceptado, error_info
+    if aceptado and pila_nodos:
+        nodo_raiz = pila_nodos[-1]
 
-def guardar_resultado(historial, aceptado, tokens, nombre_salida="salida/resultados_parser.txt"):
-    os.makedirs("salida", exist_ok=True)
-    with open(nombre_salida, 'w', encoding='utf-8') as f:
-        f.write("=== Análisis Sintáctico Paso a Paso ===\n\n")
-        f.write("| {:<4} | {:<20} | {:<20} | {:<20} |\n".format("Paso", "Pila", "Entrada", "Acción"))
-        f.write("-" * 75 + "\n")
-        for registro in historial:
-            f.write("| {:<4} | {:<20} | {:<20} | {:<20} |\n".format(
-                registro["paso"],
-                registro["pila"],
-                registro["entrada"],
-                registro["accion"]
-            ))
-        f.write("\nResumen:\n")
-        f.write(f"- Tokens analizados: {len(tokens)}\n")
-        f.write(f"- Pasos realizados: {len(historial)}\n")
-        if aceptado:
-            f.write("- Resultado: ✅ Cadena aceptada.\n")
-        else:
-            f.write("- Resultado: ❌ Error sintáctico.\n")
-            # Extraer token problemático del último paso o usar el primer token restante
-            if historial:
-                ultimo_registro = historial[-1]
-                entrada_restante = ultimo_registro["entrada"].split()
-                if len(entrada_restante) > 0:
-                    token_error = entrada_restante[0]
-                    posicion = tokens.index(token_error) + 1 if token_error in tokens else '?'
-                else:
-                    token_error = "EOF"
-                    posicion = "desconocida"
-            else:
-                token_error = tokens[0] if tokens else "vacío"
-                posicion = 1
-            f.write(f"  - Token problemático: '{token_error}'\n")
-            f.write(f"  - Posición: línea 1, columna {posicion}\n")
-
-    print("✅ Resultado guardado en:", nombre_salida)
-
-def leer_tokens(ruta_archivo):
-    with open(ruta_archivo, 'r', encoding='utf-8') as f:
-        lineas = f.readlines()
-    return [linea.strip().split() for linea in lineas]
+    return historial, aceptado, error_info, nodo_raiz
 
 
+# === Generar archivo DOT y renderizado del AST ===
+def guardar_ast(ast, nombre_salida="arbol_sintactico/arbol"):
+    os.makedirs("arbol_sintactico", exist_ok=True)
+    dot = Digraph(comment='Árbol Sintáctico Abstracto')
+    if ast:
+        ast.to_dot(dot)
+        dot.render(nombre_salida, format='png', cleanup=True)
+        dot.save(filename=nombre_salida + ".dot")
+        print(f"✅ Árbol guardado en arbol_sintactico/{os.path.basename(nombre_salida)}")
+
+
+# === Main ===
 def main():
-    ruta_csv = "tabla.csv"
-    ruta_tokens = "tokens.txt"
+    # Leer contenido del archivo de entrada
+    with open("codigo.txt", "r") as f:
+        contenido = f.read()
 
-    tabla, terminales = cargar_tabla_sintactica(ruta_csv)
-    listas_tokens = leer_tokens(ruta_tokens)
+    # Ejecutar lexer y obtener tokens
+    tokens = ejecutar_lexer(contenido)
 
-    for idx, tokens in enumerate(listas_tokens):
-        print(f"\n🔹 Analizando cadena {idx+1}: {' '.join(tokens)}")
-        historial, aceptado, error_info = analizar_cadena(tabla, tokens, terminales)
-        guardar_resultado(historial, aceptado, tokens, f"salida/resultados_cadena_{idx+1}.txt")
-        if aceptado:
-            print("✅ La cadena es sintácticamente correcta.")
-        else:
-            print("❌ Error sintáctico detectado.")
-            print(f"  - Token problemático: '{error_info['token']}'")
-            print(f"  - Posición: línea {error_info['linea']}, columna {error_info['columna']}")
+    # Cargar gramática
+    tabla, terminales = cargar_tabla_sintactica("tabla.csv")
+
+    # Analizar cadena
+    historial, aceptado, error_info, ast = analizar_cadena(tabla, tokens, terminales, contenido)
+    # Mostrar resultados
+    if aceptado:
+        print("✅ La cadena es sintácticamente correcta.")
+        guardar_ast(ast)
+    else:
+        print("❌ Error sintáctico detectado.")
+        print(f"  - Token problemático: '{error_info.get('token', '?')}'")
+        print(f"  - Posición: línea {error_info.get('linea', '?')}, columna {error_info.get('columna', '?')}")
 
 if __name__ == "__main__":
     main()
