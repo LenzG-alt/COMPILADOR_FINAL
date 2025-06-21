@@ -1,7 +1,0 @@
-E -> T X
-T -> LPAREN E RPAREN 
-T -> INT_NUM Y
-X -> PLUS E
-X -> ε
-Y -> TIMES T
-Y -> ε
