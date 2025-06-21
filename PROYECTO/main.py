@@ -10,11 +10,7 @@ from SemanticAnalyzer import SemanticAnalyzer
 # SymbolTable is used by SemanticAnalyzer
 
 def run_compiler_pipeline():
-    # Define file paths relative to the PROYECTO directory
-    # Assumes main.py is in PROYECTO and executed from parent of PROYECTO, or PROYECTO is in PYTHONPATH
-    # For simplicity, if running `python PROYECTO/main.py`, relative paths from PROYECTO are fine.
-
-    base_dir = os.path.dirname(__file__) # Gets the directory where main.py is located (PROYECTO)
+    base_dir = os.path.dirname(__file__) 
 
     codigo_file_path = os.path.join(base_dir, "codigo.txt")
     tabla_sintactica_path = os.path.join(base_dir, "tabla_sintactica.csv")

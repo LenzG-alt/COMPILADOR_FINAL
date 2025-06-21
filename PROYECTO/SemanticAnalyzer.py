@@ -46,7 +46,7 @@ class SemanticAnalyzer:
             type_keyword_node = tipo_node.children[0]
             # Map from lexer token types (e.g., 'INT', 'FLOAT') to internal type names (e.g., 'int', 'float')
             # DEBUGGING:
-            print(f"DEBUG _get_node_type_str: tipo_node.value='{tipo_node.value}', child_value='{type_keyword_node.value if type_keyword_node else 'None'}'")
+            #print(f"DEBUG _get_node_type_str: tipo_node.value='{tipo_node.value}', child_value='{type_keyword_node.value if type_keyword_node else 'None'}'")
             type_mapping = {
                 'INT': 'int',
                 'FLOAT': 'float',
@@ -297,9 +297,10 @@ class SemanticAnalyzer:
         # Children: [Node('tipo'), Node_with_lexeme_as_value (ID)]
         tipo_node_in_param = node.children[0] if node.children else None
         id_node_in_param = node.children[1] if node.children and len(node.children) > 1 else None
-        print(f"DEBUG _visit_parametro: ID='{id_node_in_param.value if id_node_in_param else 'N/A'}', TipoNode='{tipo_node_in_param.value if tipo_node_in_param else 'N/A'}'")
+        #print(f"DEBUG _visit_parametro: ID='{id_node_in_param.value if id_node_in_param else 'N/A'}', TipoNode='{tipo_node_in_param.value if tipo_node_in_param else 'N/A'}'")
         if tipo_node_in_param and tipo_node_in_param.children:
-            print(f"  DEBUG _visit_parametro: TipoNode child='{tipo_node_in_param.children[0].value}'")
+            print(" ")
+            #print(f"  DEBUG _visit_parametro: TipoNode child='{tipo_node_in_param.children[0].value}'")
         # print(f"DEBUG: _visit_parametro: node.value='{node.value if hasattr(node, 'value') else 'N/A'}' (type: {type(node).__name__}), node.lineno={node.lineno if hasattr(node, 'lineno') else 'N/A'}, num_children={len(node.children) if node.children else 'None'}")
         # if node.children:
         #     for i, child in enumerate(node.children):
@@ -431,13 +432,14 @@ class SemanticAnalyzer:
         # declaracion -> tipo ID inicializacion
         tipo_node_in_decl = node.children[0] if node.children else None
         id_node_in_decl = node.children[1] if node.children and len(node.children) > 1 else None
-        print(f"DEBUG _visit_declaracion: ID='{id_node_in_decl.value if id_node_in_decl else 'N/A'}', TipoNode='{tipo_node_in_decl.value if tipo_node_in_decl else 'N/A'}'")
+        #print(f"DEBUG _visit_declaracion: ID='{id_node_in_decl.value if id_node_in_decl else 'N/A'}', TipoNode='{tipo_node_in_decl.value if tipo_node_in_decl else 'N/A'}'")
         if tipo_node_in_decl and tipo_node_in_decl.children:
-            print(f"  DEBUG _visit_declaracion: TipoNode child='{tipo_node_in_decl.children[0].value}'")
+            print(" ")
+            #print(f"  DEBUG _visit_declaracion: TipoNode child='{tipo_node_in_decl.children[0].value}'")
 
 
         if node.children and len(node.children) == 3 and \
-           node.children[0] and node.children[0].value == 'tipo' and \
+            node.children[0] and node.children[0].value == 'tipo' and \
            node.children[1] and \
            node.children[2] and node.children[2].value == 'inicializacion':
 
@@ -1042,75 +1044,9 @@ class SemanticAnalyzer:
                 return TYPE_ERROR
         return 'void' # Epsilon case means effectively void type for return context
 
-    # Add more _visit_xxx methods as needed for other non-terminals or specific terminals
-    # that require special handling (e.g., _visit_declaracion, _visit_id for usage).
 
     def get_symbol_table_formatted(self):
         return self.symbol_table.get_formatted_symbol_table()
 
     def get_errors_formatted(self):
         return self.symbol_table.get_formatted_errors()
-
-if __name__ == '__main__':
-    # This part requires a mock AST or integration with the Parser to be truly testable.
-    # For now, we can test if the class instantiates.
-
-    # Mock Node class for basic testing if Parser.Node is not available
-    class MockNode:
-        def __init__(self, value, children=None, lineno=-1, original_token_type=None): # Added original_token_type
-            self.value = value
-            self.children = children if children else []
-            self.lineno = lineno
-            self.original_token_type = original_token_type
-
-
-    # Example Mock AST: programa -> funciones -> funcion (as global int x;) -> funciones (epsilon)
-    #                      -> funcion (main() {}) -> funciones (epsilon)
-
-    # Global var: int x;
-    node_int_kw = MockNode("INT", lineno=1) # Node for the keyword INT
-    node_tipo_int = MockNode("tipo", [node_int_kw], lineno=1)
-    node_id_x = MockNode("x", [], lineno=1, original_token_type='ID') # Value is lexeme 'x'
-    node_epsilon_init = MockNode("ε", lineno=1)
-    node_inicializacion_eps = MockNode("inicializacion", [node_epsilon_init], lineno=1)
-    node_semi_global = MockNode("SEMI", lineno=1)
-    node_func_rest_global = MockNode("funcion_rest", [node_inicializacion_eps, node_semi_global], lineno=1)
-    global_var_decl_func_node = MockNode("funcion", [node_tipo_int, node_id_x, node_func_rest_global], lineno=1)
-
-    # Main function: main() {}
-    node_main_kw = MockNode("MAIN", lineno=2)
-    node_lparen = MockNode("LPAREN", lineno=2)
-    node_rparen = MockNode("RPAREN", lineno=2)
-    node_lbrace = MockNode("LBRACE", lineno=2)
-    node_rbrace = MockNode("RBRACE", lineno=2)
-    node_instr_eps = MockNode("instrucciones", [MockNode("ε", lineno=2)], lineno=2)
-    node_bloque_main = MockNode("bloque", [node_lbrace, node_instr_eps, node_rbrace], lineno=2)
-    main_func_node = MockNode("funcion", [node_main_kw, node_lparen, node_rparen, node_bloque_main], lineno=2)
-
-    # Funciones chain
-    epsilon_funciones1 = MockNode("funciones", [MockNode("ε", lineno=3)], lineno=3)
-    funciones_for_main = MockNode("funciones", [main_func_node, epsilon_funciones1], lineno=2)
-    funciones_for_global_var = MockNode("funciones", [global_var_decl_func_node, funciones_for_main], lineno=1)
-
-    # Programa root
-    programa_node = MockNode("programa", [funciones_for_global_var], lineno=1)
-
-    print("--- Basic SemanticAnalyzer Instantiation Test ---")
-    analyzer = SemanticAnalyzer(programa_node)
-    print("SemanticAnalyzer instantiated.")
-
-    # Call analyze - it will only traverse due to placeholder visit methods
-    print("\n--- Running analyze (expecting traversal via generic_visit or basic placeholders) ---")
-    analyzer.analyze()
-    print("analyze() completed.")
-
-    print("\n--- Initial Symbol Table (should be empty or global only) ---")
-    print(analyzer.get_symbol_table_formatted())
-
-    print("\n--- Initial Errors (should be empty or 'No AST' if root was None) ---")
-    print(analyzer.get_errors_formatted())
-
-    print("\n--- Test with None AST ---")
-    analyzer_none = SemanticAnalyzer(None)
-    analyzer_none.analyze()
-    print(analyzer_none.get_errors_formatted())
