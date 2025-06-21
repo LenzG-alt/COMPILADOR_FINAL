@@ -2,6 +2,9 @@ from SymbolTable import SymbolTable
 # Assuming Node class is in Parser.py or accessible if needed for type hinting (not strictly required for this step)
 # from .Parser import Node # Example if Parser.Node was needed and Parser is in the same package
 
+# Define a constant for error type, to be returned by visit methods upon error
+TYPE_ERROR = "TypeError"
+
 class SemanticAnalyzer:
     def __init__(self, ast_root):
         self.ast_root = ast_root
@@ -9,6 +12,8 @@ class SemanticAnalyzer:
         # current_function_name can be useful to pass down during traversal for context,
         # especially when adding local symbols to know their function scope.
         self.current_function_name = None
+        self.current_function_return_type = None # Store return type of current function
+
 
     def analyze(self):
         if self.ast_root:
@@ -16,13 +21,14 @@ class SemanticAnalyzer:
         else:
             # This case should ideally not happen if parsing was successful
             self.symbol_table.add_error("Error semántico: No se proporcionó un árbol sintáctico para analizar.")
+            return TYPE_ERROR
 
     def _visit(self, node):
         # Basic dispatcher based on node.value (non-terminal name or terminal type/value)
         # More specific checks (e.g. based on children structure) might be needed for some rules.
 
         if not node: # Should not happen with a well-formed AST
-            return
+            return TYPE_ERROR # Or some other indicator of an issue
 
         method_name = f'_visit_{node.value.lower().replace("(", "_lparen_").replace(")", "_rparen_")}' # Sanitize node names for methods
 
@@ -35,14 +41,37 @@ class SemanticAnalyzer:
 
     def _get_node_type_str(self, tipo_node):
         if tipo_node and tipo_node.value == 'tipo' and tipo_node.children:
-            return tipo_node.children[0].value
+            # The child of 'tipo' is the actual type keyword (e.g., Node('INT'))
+            # We want its value (e.g., "INT", "FLOAT")
+            type_keyword_node = tipo_node.children[0]
+            # Map from lexer token types (e.g., 'INT', 'FLOAT') to internal type names (e.g., 'int', 'float')
+            # DEBUGGING:
+            print(f"DEBUG _get_node_type_str: tipo_node.value='{tipo_node.value}', child_value='{type_keyword_node.value if type_keyword_node else 'None'}'")
+            type_mapping = {
+                'INT': 'int',
+                'FLOAT': 'float',
+                'BOOL': 'bool',
+                'STRING': 'string', # This should match the token type from lexer for "string" keyword
+                'VOID': 'void'
+            }
+            # If type_keyword_node.value is "string" (lowercase from an ID perhaps, not a type token)
+            # vs "STRING" (uppercase, the token type for the keyword 'string')
+            # The lexer has 'string': 'STRING', so type_keyword_node.value should be 'STRING'
+            # print(f"DEBUG _get_node_type_str: looking for '{type_keyword_node.value}' in mapping. Result: {type_mapping.get(type_keyword_node.value, 'UnknownType')}")
+            return type_mapping.get(type_keyword_node.value, "UnknownType")
         return "UnknownType"
 
+
     def _generic_visit(self, node):
-        # Default behavior: visit all children
+        # Default behavior: visit all children, return None or last child's type if applicable
+        # For type checking, most generic visits might not return a meaningful type.
         # print(f"Generic visit for node: {node.value} with {len(node.children)} children") # Debug
+        last_type = None
         for child in node.children:
-            self._visit(child)
+            last_type = self._visit(child)
+            if last_type == TYPE_ERROR: # Propagate error
+                return TYPE_ERROR
+        return last_type # Or simply None if no meaningful type from generic visit
 
     # Visitor methods for common top-level grammar rules
 
@@ -50,46 +79,52 @@ class SemanticAnalyzer:
         # print(f"Visiting programa node: {node.value}") # Debug
         # Global scope is already entered by SymbolTable.__init__
         # Children of 'programa' are typically 'funciones'
-        self._generic_visit(node) # Or iterate children: for child in node.children: self._visit(child)
+        return self._generic_visit(node) # Or iterate children: for child in node.children: self._visit(child)
 
     def _visit_funciones(self, node):
         # print(f"Visiting funciones node: {node.value}") # Debug
         # Iterates over 'funcion' and subsequent 'funciones' or 'epsilon'
-        self._generic_visit(node) # Or iterate children: for child in node.children: self._visit(child)
+        return self._generic_visit(node) # Or iterate children: for child in node.children: self._visit(child)
 
     def _visit_funcion(self, node):
-        # Ensure children are not None before accessing them
-        if not node.children or not all(c for c in node.children): # Basic check if node.children or any child is None
-            self._generic_visit(node) # Or log an error for malformed AST
-            return
+        if not node.children or not all(c for c in node.children):
+            return TYPE_ERROR
 
-        # Check for global variable declaration pattern (from Step 4.1)
-        # The structure is: funcion -> tipo ID funcion_rest
-        # where ID node's value has been replaced by the lexeme (e.g., "hola")
-        # So, we check for 'tipo' and 'funcion_rest', and assume child[1] is the ID node.
+        # Global variable declaration: funcion -> tipo ID funcion_rest (where funcion_rest is inicializacion SEMI)
         if len(node.children) == 3 and \
            node.children[0] and node.children[0].value == 'tipo' and \
            node.children[1] and \
            node.children[2] and node.children[2].value == 'funcion_rest':
-            # node.children[1] is the ID node, its .value is the lexeme
+
             funcion_rest_node = node.children[2]
-            # funcion_rest -> inicializacion SEMI (for global variables)
             if funcion_rest_node and len(funcion_rest_node.children) == 2 and \
                funcion_rest_node.children[0] and funcion_rest_node.children[0].value == 'inicializacion' and \
                funcion_rest_node.children[1] and funcion_rest_node.children[1].value == 'SEMI':
 
-                # This is a global variable declaration
                 tipo_node = node.children[0]
-                id_node = node.children[1] # This node holds the lexeme e.g. "hola"
+                id_node = node.children[1]
+                inicializacion_node = funcion_rest_node.children[0]
 
-                type_str = self._get_node_type_str(tipo_node)
-                var_name = id_node.value # var_name is the lexeme e.g. "hola"
+                declared_type_str = self._get_node_type_str(tipo_node)
+                # print(f"DEBUG Global Var Decl: ID='{id_node.value}', DeclaredType='{declared_type_str}' from TipoNode Child='{tipo_node.children[0].value if tipo_node.children else 'N/A'}'")
+
+                var_name = id_node.value
                 var_lineno = id_node.lineno
 
-                self.symbol_table.add_symbol(var_name, type_str, var_lineno, 'global')
-                return
+                # Add to symbol table first
+                self.symbol_table.add_symbol(var_name, declared_type_str, var_lineno, 'global', param_types=None)
 
-        # Check for MAIN function definition: MAIN LPAREN RPAREN bloque
+                # Then check initialization if present
+                if inicializacion_node.children and inicializacion_node.children[0].value != 'ε':
+                    # inicializacion -> EQUALS exp
+                    if len(inicializacion_node.children) == 2 and inicializacion_node.children[0].value == 'EQUALS':
+                        exp_node = inicializacion_node.children[1]
+                        exp_type = self._visit(exp_node)
+                        if exp_type != TYPE_ERROR:
+                            self._check_assignment_compatibility(declared_type_str, exp_type, var_lineno, var_name)
+                return # Done with global var
+
+        # MAIN function: MAIN LPAREN RPAREN bloque
         if len(node.children) == 4 and \
            node.children[0] and node.children[0].value == 'MAIN' and \
            node.children[1] and node.children[1].value == 'LPAREN' and \
@@ -97,33 +132,29 @@ class SemanticAnalyzer:
            node.children[3] and node.children[3].value == 'bloque':
 
             func_name = "main"
-            func_lineno = node.children[0].lineno # Line of 'MAIN' keyword
+            func_lineno = node.children[0].lineno
+            func_return_type = "void" # Main typically returns void or int, let's use void
 
-            # Add main function to symbol table (current scope should be global)
-            # Assuming global scope is the first one in scope_stack
-            current_scope_name_for_func_decl = self.symbol_table.scope_stack[-1]['name']
-            self.symbol_table.add_symbol(func_name, "FUNCTION (VOID)", func_lineno, current_scope_name_for_func_decl)
+            # Add main function symbol (type includes return type and empty param list)
+            self.symbol_table.add_symbol(func_name, f"FUNCTION () -> {func_return_type.upper()}", func_lineno, "global", param_types=[])
 
-            # Order: set name, enter scope, visit params (none for main), visit block, exit, reset name
             self.current_function_name = func_name
+            self.current_function_return_type = func_return_type
             self.symbol_table.enter_scope(func_name)
 
-            # Main has no explicit parameters in this grammar structure to visit via _visit(parametros_node)
-
-            bloque_node = node.children[3] # bloque_node is child 3
-            if bloque_node: self._visit(bloque_node) # Visit function block
+            self._visit(node.children[3]) # Visit bloque
 
             self.symbol_table.exit_scope()
-            self.current_function_name = None # Reset after exiting scope
-            return
+            self.current_function_name = None
+            self.current_function_return_type = None
+            return # Done with main
 
-        # Check for regular function definition: tipo ID funcion_rest (where funcion_rest is LPAREN parametros RPAREN bloque)
-        # The ID node (node.children[1]) for function name should have its .value as the lexeme.
+        # Regular function definition: tipo ID funcion_rest (where funcion_rest is LPAREN parametros RPAREN bloque)
         if len(node.children) == 3 and \
            node.children[0] and node.children[0].value == 'tipo' and \
            node.children[1] and \
            node.children[2] and node.children[2].value == 'funcion_rest':
-            # node.children[1] is the ID node for function name, its .value is the lexeme
+
             funcion_rest_node = node.children[2]
             if funcion_rest_node and len(funcion_rest_node.children) == 4 and \
                funcion_rest_node.children[0] and funcion_rest_node.children[0].value == 'LPAREN' and \
@@ -132,82 +163,172 @@ class SemanticAnalyzer:
                funcion_rest_node.children[3] and funcion_rest_node.children[3].value == 'bloque':
 
                 tipo_node_for_func = node.children[0]
-                id_node = node.children[1] # Function name ID node
-                func_name = id_node.value # Function name is the lexeme
+                id_node = node.children[1]
+                func_name = id_node.value
                 func_lineno = id_node.lineno
-                func_return_type_str = self._get_node_type_str(tipo_node_for_func)
+                func_return_type = self._get_node_type_str(tipo_node_for_func)
+                # print(f"DEBUG Func Decl: Name='{func_name}', ReturnType='{func_return_type}' from TipoNode Child='{tipo_node_for_func.children[0].value if tipo_node_for_func.children else 'N/A'}'")
 
-                # Add function symbol itself to parent scope (e.g., global)
-                # Assuming global scope is the first one in scope_stack
-                current_scope_name_for_func_decl = self.symbol_table.scope_stack[-1]['name']
-                self.symbol_table.add_symbol(func_name, f"FUNCTION ({func_return_type_str})", func_lineno, current_scope_name_for_func_decl)
 
-                # Order: set name, enter scope, visit params, visit block, exit, reset name
+                # Collect parameter types (must be done before adding function symbol if types are part of its signature)
+                param_types = self._collect_param_types(funcion_rest_node.children[1]) # visit parametros
+                if param_types == TYPE_ERROR: return TYPE_ERROR # Error during param type collection
+
+                # Add function symbol (type includes return type and param types)
+                param_types_str = ", ".join(param_types).upper() if param_types else ""
+                self.symbol_table.add_symbol(func_name, f"FUNCTION ({param_types_str}) -> {func_return_type.upper()}", func_lineno, "global", param_types=param_types)
+
                 self.current_function_name = func_name
+                self.current_function_return_type = func_return_type
                 self.symbol_table.enter_scope(func_name)
 
-                parametros_node = funcion_rest_node.children[1]
-                if parametros_node: self._visit(parametros_node) # Visit parameters
-
-                bloque_node = funcion_rest_node.children[3]
-                if bloque_node: self._visit(bloque_node) # Visit function block
+                self._visit(funcion_rest_node.children[1]) # Re-visit parametros to add them to scope
+                self._visit(funcion_rest_node.children[3]) # Visit bloque
 
                 self.symbol_table.exit_scope()
-                self.current_function_name = None # Reset after exiting scope
-                return
+                self.current_function_name = None
+                self.current_function_return_type = None
+                return # Done with function
 
-        # Fallback for other cases
-        self._generic_visit(node)
+        return self._generic_visit(node) # Fallback
+
+    def _collect_param_types(self, parametros_node):
+        types = []
+
+        # Current node can be 'parametros' or 'parametros_rest'
+        # 'parametros' -> 'parametro' 'parametros_rest' | epsilon
+        # 'parametros_rest' -> COMMA 'parametro' 'parametros_rest' | epsilon
+
+        node_iter = parametros_node # Initially Node('parametros')
+
+        while node_iter and node_iter.children and node_iter.children[0].value != 'ε':
+            param_node_to_process = None
+            next_iter_node = None
+
+            if node_iter.value == 'parametros':
+                # Children: [Node('parametro'), Node('parametros_rest')]
+                if len(node_iter.children) == 2:
+                    param_node_to_process = node_iter.children[0]
+                    next_iter_node = node_iter.children[1] # This will be Node('parametros_rest')
+                else: # Malformed or epsilon handled by while condition
+                    break
+            elif node_iter.value == 'parametros_rest':
+                # Children: [Node('COMMA'), Node('parametro'), Node('parametros_rest')]
+                if len(node_iter.children) == 3:
+                    # First child is COMMA, second is 'parametro'
+                    param_node_to_process = node_iter.children[1]
+                    next_iter_node = node_iter.children[2]
+                else: # Malformed or epsilon handled by while condition
+                    break
+            else: # Should not happen
+                self.symbol_table.add_error(f"Error Interno: Nodo inesperado '{node_iter.value}' en _collect_param_types.")
+                return TYPE_ERROR
+
+            # At this point, param_node_to_process should be Node('parametro')
+            # DEBUGGING:
+            # print(f"DEBUG _collect_param_types: Processing param_node_to_process='{param_node_to_process.value if param_node_to_process else 'None'}'")
+            # if param_node_to_process and hasattr(param_node_to_process, 'children') and param_node_to_process.children:
+            #     print(f"DEBUG _collect_param_types: param_node_to_process children values: {[c.value for c in param_node_to_process.children]}")
+            # END DEBUGGING
+
+            if param_node_to_process and hasattr(param_node_to_process, 'value') and param_node_to_process.value == 'parametro' and \
+               hasattr(param_node_to_process, 'children') and param_node_to_process.children and len(param_node_to_process.children) == 2:
+                tipo_node = param_node_to_process.children[0]
+                types.append(self._get_node_type_str(tipo_node))
+            else:
+                err_lineno = -1
+                if param_node_to_process and hasattr(param_node_to_process, 'lineno'): err_lineno = param_node_to_process.lineno
+                elif node_iter and hasattr(node_iter, 'lineno'): err_lineno = node_iter.lineno # Fallback to list node
+                self.symbol_table.add_error(f"Error semántico [línea {err_lineno}]: Estructura de parámetro inválida procesando '{param_node_to_process.value if param_node_to_process and hasattr(param_node_to_process, 'value') else 'Node?'}'.")
+                return TYPE_ERROR
+
+            node_iter = next_iter_node # Move to the next 'parametros_rest' or None
+            if not node_iter: # Reached end of list if next_iter_node was, for example, the epsilon from a final parametros_rest
+                break
+        return types
+
 
     def _visit_parametros(self, node):
-        if node.children and node.children[0].value != 'ε':
-            # Has a 'parametro' and 'parametros_rest'
-            self._visit(node.children[0]) # Visit parametro
-            if len(node.children) > 1:
-                self._visit(node.children[1]) # Visit parametros_rest
-        # Else: epsilon production, do nothing
+        # This method is now primarily for adding params to symbol table within function scope.
+        # It iterates similarly to _collect_param_types but calls _visit on each 'parametro' node.
+
+        node_iter = node # Initially Node('parametros')
+
+        while node_iter and node_iter.children and node_iter.children[0].value != 'ε':
+            param_node_to_visit = None
+            next_iter_node = None
+
+            if node_iter.value == 'parametros':
+                if len(node_iter.children) == 2:
+                    param_node_to_visit = node_iter.children[0]
+                    next_iter_node = node_iter.children[1]
+                else: break
+            elif node_iter.value == 'parametros_rest':
+                if len(node_iter.children) == 3:
+                    param_node_to_visit = node_iter.children[1]
+                    next_iter_node = node_iter.children[2]
+                else: break
+            else:
+                self.symbol_table.add_error(f"Error Interno: Nodo inesperado '{node_iter.value}' en _visit_parametros.")
+                return TYPE_ERROR
+
+            if param_node_to_visit and param_node_to_visit.value == 'parametro':
+                if self._visit(param_node_to_visit) == TYPE_ERROR: # This calls _visit_parametro
+                    return TYPE_ERROR
+            else: # Should be a 'parametro' node
+                err_lineno = param_node_to_visit.lineno if param_node_to_visit and hasattr(param_node_to_visit, 'lineno') else node_iter.lineno
+                self.symbol_table.add_error(f"Error semántico [línea {err_lineno}]: Se esperaba un nodo 'parametro'.")
+                return TYPE_ERROR
+
+            node_iter = next_iter_node
+            if not node_iter: break
+
+        return None # No specific type to return for the whole list
 
     def _visit_parametros_rest(self, node):
-        if node.children and node.children[0].value != 'ε':
-            # Has COMMA, parametro, parametros_rest
-            if len(node.children) == 3:
-                self._visit(node.children[1]) # Visit parametro
-                self._visit(node.children[2]) # Visit next parametros_rest
-        # Else: epsilon production, do nothing
+        # This node is handled by the iteration logic in _visit_parametros.
+        # If called directly, it means something is off, or it's just part of a traversal.
+        # For type collection/adding symbols, it's part of the list traversal logic.
+        # A direct visit here doesn't contribute a type for an expression.
+        return None
+
 
     def _visit_parametro(self, node):
-        print(f"DEBUG: _visit_parametro: node.value='{node.value if hasattr(node, 'value') else 'N/A'}' (type: {type(node).__name__}), node.lineno={node.lineno if hasattr(node, 'lineno') else 'N/A'}, num_children={len(node.children) if node.children else 'None'}")
-        if node.children:
-            for i, child in enumerate(node.children):
-                print(f"  Child {i}: value='{child.value if hasattr(child, 'value') else 'N/A'}' (type: {type(child).__name__}), lineno={child.lineno if hasattr(child, 'lineno') else 'N/A'}")
-        else:
-            print("  _visit_parametro: Node has no children.")
+        # Children: [Node('tipo'), Node_with_lexeme_as_value (ID)]
+        tipo_node_in_param = node.children[0] if node.children else None
+        id_node_in_param = node.children[1] if node.children and len(node.children) > 1 else None
+        print(f"DEBUG _visit_parametro: ID='{id_node_in_param.value if id_node_in_param else 'N/A'}', TipoNode='{tipo_node_in_param.value if tipo_node_in_param else 'N/A'}'")
+        if tipo_node_in_param and tipo_node_in_param.children:
+            print(f"  DEBUG _visit_parametro: TipoNode child='{tipo_node_in_param.children[0].value}'")
+        # print(f"DEBUG: _visit_parametro: node.value='{node.value if hasattr(node, 'value') else 'N/A'}' (type: {type(node).__name__}), node.lineno={node.lineno if hasattr(node, 'lineno') else 'N/A'}, num_children={len(node.children) if node.children else 'None'}")
+        # if node.children:
+        #     for i, child in enumerate(node.children):
+        #         print(f"  Child {i}: value='{child.value if hasattr(child, 'value') else 'N/A'}' (type: {type(child).__name__}), lineno={child.lineno if hasattr(child, 'lineno') else 'N/A'}")
+        # else:
+        #     print("  _visit_parametro: Node has no children.")
 
-        # Children: [Node('tipo'), Node_with_lexeme_as_value]
-        # The ID node's value is the lexeme.
         if node.children and len(node.children) == 2 and \
            node.children[0] and node.children[0].value == 'tipo' and \
-           node.children[1]: # Ensure the second child (ID node) exists
+           node.children[1]:
 
             tipo_node = node.children[0]
-            id_node = node.children[1] # id_node is node.children[1]
+            id_node = node.children[1]
 
             type_str = self._get_node_type_str(tipo_node)
-            param_name = id_node.value # Correctly uses .value as lexeme
+            param_name = id_node.value
             param_lineno = id_node.lineno
 
-            if self.current_function_name: # Should always be true here
-                print(f"DEBUG: Adding param '{param_name}' type '{type_str}' line {param_lineno} to scope '{self.current_function_name}'")
-                self.symbol_table.add_symbol(param_name, type_str, param_lineno, self.current_function_name)
+            if self.current_function_name:
+                self.symbol_table.add_symbol(param_name, type_str, param_lineno, self.current_function_name, param_types=None)
+                return type_str # Return the type of the parameter
             else:
-                # This error should ideally not be hit if current_function_name is managed well
                 self.symbol_table.add_error(f"Error Interno [línea {param_lineno}]: Parámetro '{param_name}' declarado fuera del contexto de una función.")
-            return
+                return TYPE_ERROR
+        else:
+            param_node_line = node.lineno if node else -1
+            self.symbol_table.add_error(f"Error semántico [línea {param_node_line}]: Estructura de parámetro inválida.")
+            return TYPE_ERROR
 
-        # If structural check fails:
-        param_node_line = node.lineno if node else -1
-        print(f"DEBUG: _visit_parametro structural check failed for node line {param_node_line} (value: {node.value if node else 'N/A'})")
-        self.symbol_table.add_error(f"Error semántico [línea {param_node_line}]: Estructura de parámetro inválida.")
 
     def _visit_bloque(self, node):
         # Children: [Node('LBRACE'), Node('instrucciones'), Node('RBRACE')]
@@ -216,183 +337,180 @@ class SemanticAnalyzer:
            node.children[1] and node.children[1].value == 'instrucciones' and \
            node.children[2] and node.children[2].value == 'RBRACE':
 
-            instrucciones_node = node.children[1]
-            self._visit(instrucciones_node)
-        else: # Should not happen with correct grammar
+            return self._visit(node.children[1]) # Visit instrucciones
+        else:
             # self.symbol_table.add_error(f"Error semántico [línea {node.lineno if node else -1}]: Estructura de bloque inválida.")
-            self._generic_visit(node) # Fallback to generic visit if structure is unexpected
+            return self._generic_visit(node)
 
     def _visit_instrucciones(self, node):
         if node.children and node.children[0].value != 'ε':
             # Has 'instruccion' and 'instrucciones'
-            if len(node.children) > 0: # Should have at least instruccion
-                 self._visit(node.children[0]) # Visit instruccion
-            if len(node.children) > 1: # Check for recursive instrucciones
-                 self._visit(node.children[1]) # Visit next instrucciones
-        # Else: epsilon production, do nothing
+            if len(node.children) > 0:
+                 res_type = self._visit(node.children[0]) # Visit instruccion
+                 if res_type == TYPE_ERROR: return TYPE_ERROR
+            if len(node.children) > 1:
+                 res_type_rest = self._visit(node.children[1]) # Visit next instrucciones
+                 if res_type_rest == TYPE_ERROR: return TYPE_ERROR
+        return None # Instructions don't have a collective type
 
     def _visit_instruccion(self, node):
         if not node.children or len(node.children) == 0:
-            return
+            return None # Or TYPE_ERROR if this is considered an AST error
 
         first_child_of_instruccion = node.children[0]
 
-        # Check if the first child is an ID node (lexeme) due to instruccion -> ID id_rhs_instruccion
-        # This requires checking its type or assuming if not other instruction types, it's an ID.
-        # For simplicity, we rely on the fact that other instruction types like 'declaracion', 'If', etc.
-        # would have specific node.value. An ID node here would have its lexeme as node.value.
-        # A more robust way would be to check the original token type if stored, or refine the dispatcher.
-
-        # Assuming node.value for children are specific like 'declaracion', 'If', 'Print', 'Return', 'While', 'For', 'bloque'
-        # or the ID lexeme itself if it's from ID id_rhs_instruccion
-
+        # Heuristic for ID-led assignment/call (instruccion -> ID id_rhs_instruccion)
+        # This assumes ID lexemes don't clash with keywords like 'declaracion', 'If', etc.
         is_id_first_child = first_child_of_instruccion.value not in [
-            'declaracion', 'If', 'While', 'For', 'Return', 'Print', 'bloque' # Add other direct instruction types if any
+            'declaracion', 'If', 'While', 'For', 'Return', 'Print', 'bloque'
         ]
-        # This heuristic might need refinement if ID lexemes can clash with instruction keywords.
-        # A better way: in parser, make Node for 'ID id_rhs_instruccion' be e.g. Node('assignment_or_call_stmt')
 
-        if is_id_first_child and len(node.children) > 1: # Must be 'ID id_rhs_instruccion'
+        if is_id_first_child and len(node.children) > 1: # 'ID id_rhs_instruccion'
             id_node_lhs = first_child_of_instruccion
-            id_rhs_node = node.children[1] # This should be Node('id_rhs_instruccion')
+            id_rhs_node = node.children[1] # Node('id_rhs_instruccion')
 
             if id_rhs_node and id_rhs_node.value == 'id_rhs_instruccion' and id_rhs_node.children:
-                type_of_rhs = id_rhs_node.children[0].value # Should be EQUALS or llamada_func
+                type_of_rhs_production = id_rhs_node.children[0].value # EQUALS or llamada_func
 
-                if type_of_rhs == 'EQUALS': # Assignment: id_rhs_instruccion -> EQUALS exp SEMI
+                if type_of_rhs_production == 'EQUALS': # Assignment: ID EQUALS exp SEMI
                     var_name = id_node_lhs.value
                     var_lineno = id_node_lhs.lineno
-                    print(f"DEBUG: _visit_instruccion (Assignment via ID EQUALS): Checking LHS ID '{var_name}' (line {var_lineno})")
+
                     symbol = self.symbol_table.lookup_symbol(var_name)
                     if symbol is None:
-                        print(f"DEBUG: _visit_instruccion (Assignment via ID EQUALS): LHS ID '{var_name}' NOT FOUND.")
                         self.symbol_table.add_error(
-                            f"Error semántico [línea {var_lineno}]: La variable '{var_name}' no ha sido declarada en este ámbito."
+                            f"Error semántico [línea {var_lineno}]: La variable '{var_name}' no ha sido declarada."
                         )
-                    else:
-                        print(f"DEBUG: _visit_instruccion (Assignment via ID EQUALS): LHS ID '{var_name}' FOUND: {symbol}")
+                        return TYPE_ERROR
+
+                    declared_type = symbol['type']
+                    if declared_type.startswith("FUNCTION"): # Cannot assign to a function name
+                        self.symbol_table.add_error(f"Error semántico [línea {var_lineno}]: No se puede asignar a una función '{var_name}'.")
+                        return TYPE_ERROR
 
                     if len(id_rhs_node.children) > 1 and id_rhs_node.children[1].value == 'exp':
                         exp_node = id_rhs_node.children[1]
-                        if exp_node: self._visit(exp_node)
-                    # SEMI is child 2, not visited for semantics here.
+                        exp_type = self._visit(exp_node)
+                        if exp_type == TYPE_ERROR:
+                            return TYPE_ERROR
 
-                elif type_of_rhs == 'llamada_func': # Function Call Statement: id_rhs_instruccion -> llamada_func SEMI
-                    func_id_node = id_node_lhs
-                    llamada_func_node = id_rhs_node.children[0] # This is Node('llamada_func')
+                        self._check_assignment_compatibility(declared_type, exp_type, var_lineno, var_name)
+                    else: # Malformed assignment
+                        self.symbol_table.add_error(f"Error semántico [línea {var_lineno}]: Asignación mal formada para '{var_name}'.")
+                        return TYPE_ERROR
+                    return None # Assignment statement has no type
 
-                    print(f"DEBUG: _visit_instruccion (Function Call Stmt via ID llamada_func): Function name '{func_id_node.value}' (line {func_id_node.lineno})")
+                elif type_of_rhs_production == 'llamada_func': # Function Call Statement: ID llamada_func SEMI
+                    # The ID is the function name, llamada_func node contains args
+                    # Type checking for call is handled by _visit_a (when ID llamada_func is an expression)
+                    # or here if it's a statement. _visit_a should return the function's return type.
+                    # For a statement, we just care about arg compatibility, return type is discarded.
+                    # We can re-use part of _visit_a's logic for ID + llamada_func.
 
-                    # Optional: Check if func_id_node.value is a declared function (if functions are in ST)
-                    # symbol = self.symbol_table.lookup_symbol(func_id_node.value)
-                    # if symbol is None or not symbol['type'].startswith('function'): # crude type check
-                    #     self.symbol_table.add_error(f"Error: Función '{func_id_node.value}' no declarada.")
-
-                    if llamada_func_node: self._visit(llamada_func_node) # To check arguments
-                    # SEMI is child 1, not visited for semantics here.
+                    # Simulate the structure for _visit_a for the call part:
+                    # Create a temporary 'A' like node: A -> ID llamada_func
+                    # This is a bit of a hack. Ideally, `llamada_func` visitor would handle this with context.
+                    temp_a_node_for_call = type('Node', (), {
+                        'value': 'A_temp_for_call', # Dummy value
+                        'children': [id_node_lhs, id_rhs_node.children[0]], # ID, llamada_func_node
+                        'lineno': id_node_lhs.lineno
+                    })
+                    call_type = self._visit_a(temp_a_node_for_call) # Will perform arg checks
+                    if call_type == TYPE_ERROR:
+                        return TYPE_ERROR
+                    return None # Function call statement has no type
                 else:
-                    # Unexpected structure for id_rhs_instruccion
-                    # print(f"DEBUG: _visit_instruccion: Unexpected structure for id_rhs_instruccion child 0: {type_of_rhs}")
-                    self._generic_visit(id_rhs_node)
+                    return self._generic_visit(id_rhs_node) # Fallback
             else:
-                # Expected id_rhs_instruccion node not found or malformed
-                # print(f"DEBUG: _visit_instruccion: id_rhs_node is missing or malformed for ID-led instruction.")
-                self._generic_visit(node) # Fallback
+                return self._generic_visit(node) # Fallback
+        else: # Standard instruction like declaracion, If, Print etc.
+            return self._visit(first_child_of_instruccion)
 
-        elif not is_id_first_child : # Standard instruction like declaracion, If, Print etc.
-            self._visit(first_child_of_instruccion)
-
-        else: # Fallback for other unexpected instruction structures
-            # print(f"DEBUG: _visit_instruccion: Fallback for node {node.value}")
-            self._generic_visit(node)
-        # SEMI for assignments/calls is part of id_rhs_instruccion grammar,
-        # SEMI for declaracion is handled by its own rule leading to _visit_declaracion.
 
     def _visit_declaracion(self, node):
-        id_val = node.children[1].value if node.children and len(node.children) > 1 and hasattr(node.children[1], 'value') else 'N/A_ID_NODE'
-        lin_val = node.children[1].lineno if node.children and len(node.children) > 1 and hasattr(node.children[1], 'lineno') else 'N/A_LINE'
-        print(f"DEBUG: _visit_declaracion for ID '{id_val}' (line {lin_val}), current_function_name='{self.current_function_name}'")
-
         # declaracion -> tipo ID inicializacion
-        # ID node (node.children[1]) has its .value as the lexeme, not "ID"
+        tipo_node_in_decl = node.children[0] if node.children else None
+        id_node_in_decl = node.children[1] if node.children and len(node.children) > 1 else None
+        print(f"DEBUG _visit_declaracion: ID='{id_node_in_decl.value if id_node_in_decl else 'N/A'}', TipoNode='{tipo_node_in_decl.value if tipo_node_in_decl else 'N/A'}'")
+        if tipo_node_in_decl and tipo_node_in_decl.children:
+            print(f"  DEBUG _visit_declaracion: TipoNode child='{tipo_node_in_decl.children[0].value}'")
+
+
         if node.children and len(node.children) == 3 and \
            node.children[0] and node.children[0].value == 'tipo' and \
            node.children[1] and \
            node.children[2] and node.children[2].value == 'inicializacion':
-            # node.children[1] is the ID node, its .value is the lexeme
+
             tipo_node = node.children[0]
             id_node = node.children[1]
             inicializacion_node = node.children[2]
 
-            type_str = self._get_node_type_str(tipo_node)
+            declared_type_str = self._get_node_type_str(tipo_node)
             var_name = id_node.value
             var_lineno = id_node.lineno
 
-            scope_attr_for_symbol = 'unknown_scope' # Fallback
-            if self.current_function_name:
-                scope_attr_for_symbol = self.current_function_name
-            else:
-                # This path implies a declaration is being processed not within a function scope
-                # that was entered via _visit_funcion. This should be rare if grammar is C-like.
-                self.symbol_table.add_error(
-                    f"Error Interno [línea {var_lineno}]: Declaración local '{var_name}' procesada sin un nombre de función actual. Asumiendo 'global' para evitar error, pero esto es anómalo."
-                )
-                scope_attr_for_symbol = 'global' # Fallback to global to avoid crashing SymbolTable, but error is logged.
+            scope_name = self.current_function_name if self.current_function_name else 'global'
+            self.symbol_table.add_symbol(var_name, declared_type_str, var_lineno, scope_name, param_types=None)
 
+            # Check initialization if present
+            # inicializacion -> EQUALS exp | ε
+            if inicializacion_node.children and inicializacion_node.children[0].value != 'ε':
+                # Must be EQUALS exp
+                if len(inicializacion_node.children) == 2 and inicializacion_node.children[0].value == 'EQUALS':
+                    exp_node = inicializacion_node.children[1]
+                    exp_type = self._visit(exp_node)
 
-            self.symbol_table.add_symbol(var_name, type_str, var_lineno, scope_attr_for_symbol)
-
-            # Visit the inicializacion part to handle expressions (for Step 4.4)
-            self._visit(inicializacion_node)
-        else: # Should not happen with correct grammar for declaracion
+                    if exp_type != TYPE_ERROR:
+                        self._check_assignment_compatibility(declared_type_str, exp_type, var_lineno, var_name)
+                    else:
+                        return TYPE_ERROR # Error from expression
+                else: # Malformed initialization
+                    self.symbol_table.add_error(f"Error semántico [línea {inicializacion_node.lineno}]: Inicialización de '{var_name}' mal formada.")
+                    return TYPE_ERROR
+            return None # Declaration statement has no type
+        else:
             self.symbol_table.add_error(f"Error semántico [línea {node.lineno if node else -1}]: Estructura de declaración inválida.")
-            self._generic_visit(node)
+            return TYPE_ERROR
+
+    def _check_assignment_compatibility(self, lhs_type, rhs_type, lineno, var_name="variable"):
+        # Basic compatibility rules
+        # print(f"DEBUG: CheckAssign: LHS={lhs_type}, RHS={rhs_type}, var={var_name}, line={lineno}")
+        if lhs_type == rhs_type:
+            return True # Types match
+
+        # Promotion/conversion rules:
+        # float = int (OK)
+        # int = float (OK with truncation, or specific language rule)
+        if lhs_type == 'float' and rhs_type == 'int':
+            return True
+        if lhs_type == 'int' and rhs_type == 'float':
+            # print(f"Advertencia [línea {lineno}]: Asignación de float a int '{var_name}', posible truncamiento.")
+            return True # Allow with potential truncation
+
+        # Add more rules as needed, e.g. bool to int/float or vice-versa if language supports
+
+        self.symbol_table.add_error(
+            f"Error de tipo [línea {lineno}]: No se puede asignar un valor de tipo '{rhs_type}' a la variable '{var_name}' de tipo '{lhs_type}'."
+        )
+        return False
 
 
     def _visit_inicializacion(self, node):
+        # This is mostly handled by _visit_declaracion or _visit_funcion (for global vars)
+        # If called directly, it means we are interested in the type of the expression if one exists
         # inicializacion -> EQUALS exp | ε
         if node.children and node.children[0].value != 'ε':
-            if node.children[0].value == 'EQUALS': # Check for EQUALS
-                 # Children: [Node('EQUALS'), Node('exp')]
-                if len(node.children) == 2: # Make sure 'exp' exists
-                    self._visit(node.children[1]) # Visit exp node
-                # else: Malformed EQUALS without exp, could log error or rely on parser
-            # else: could be an error if not epsilon and not EQUALS, but grammar should ensure this.
-            # This path means it's not epsilon and not EQUALS, which shouldn't occur with valid grammar.
-        # Else (epsilon or no children): do nothing for declaration part
+            if node.children[0].value == 'EQUALS':
+                if len(node.children) == 2:
+                    return self._visit(node.children[1]) # Visit exp node, return its type
+                else: # Malformed
+                    self.symbol_table.add_error(f"Error semántico [línea {node.lineno}]: Estructura de inicialización con '=' inválida.")
+                    return TYPE_ERROR
+            else: # Should not happen based on grammar if not epsilon and not EQUALS
+                self.symbol_table.add_error(f"Error semántico [línea {node.lineno}]: Estructura de inicialización inválida.")
+                return TYPE_ERROR
+        return None # Epsilon case, no type
 
-    # def _visit_asignacion(self, node):
-    #     # This method is now effectively deprecated for statement-level assignments.
-    #     # Assignments like `ID EQUALS exp` as standalone statements are handled by
-    #     # the new logic in _visit_instruccion for `instruccion -> ID id_rhs_instruccion`
-    #     # where `id_rhs_instruccion -> EQUALS exp SEMI`.
-    #     # This might still be called if 'asignacion' is used elsewhere (e.g. in For loops, pre-fix).
-    #     # For now, commenting out to ensure it's not interfering.
-    #     # print(f"DEBUG: _visit_asignacion called for node {node.value} - THIS SHOULD BE DEPRECATED FOR STATEMENTS")
-    #     if node.children and len(node.children) == 3 and \
-    #        node.children[0] and \
-    #        node.children[1] and node.children[1].value == 'EQUALS' and \
-    #        node.children[2] and node.children[2].value == 'exp':
-
-    #         id_node = node.children[0]
-    #         exp_node = node.children[2]
-    #         var_name = id_node.value
-    #         var_lineno = id_node.lineno
-
-    #         print(f"DEBUG: _visit_asignacion (possibly from For): Checking LHS ID '{var_name}' (line {var_lineno}) for declaration.")
-    #         symbol = self.symbol_table.lookup_symbol(var_name)
-    #         if symbol is None:
-    #             print(f"DEBUG: _visit_asignacion (possibly from For): LHS ID '{var_name}' NOT FOUND.")
-    #             self.symbol_table.add_error(
-    #                 f"Error semántico [línea {var_lineno}]: La variable '{var_name}' no ha sido declarada en este ámbito."
-    #             )
-    #         else:
-    #             print(f"DEBUG: _visit_asignacion (possibly from For): LHS ID '{var_name}' FOUND: {symbol}")
-
-    #         if exp_node: self._visit(exp_node)
-    #     else:
-    #         self.symbol_table.add_error(f"Error semántico [línea {node.lineno if node else -1}]: Estructura de asignación (old) inválida.")
-    #         self._generic_visit(node)
 
     def _visit_for_assignment(self, node):
         # for_assignment -> ID EQUALS exp
@@ -401,235 +519,400 @@ class SemanticAnalyzer:
            node.children[1] and node.children[1].value == 'EQUALS' and \
            node.children[2] and node.children[2].value == 'exp':
 
-            id_node = node.children[0] # This is the ID node
+            id_node = node.children[0]
             exp_node = node.children[2]
 
-            var_name = id_node.value # Lexeme
-            var_lineno = id_node.lineno
-
-            print(f"DEBUG: _visit_for_assignment: Checking LHS ID '{var_name}' (line {var_lineno}) for declaration.")
-            symbol = self.symbol_table.lookup_symbol(var_name)
-            if symbol is None:
-                print(f"DEBUG: _visit_for_assignment: LHS ID '{var_name}' NOT FOUND.")
-                self.symbol_table.add_error(
-                    f"Error semántico [línea {var_lineno}]: La variable '{var_name}' no ha sido declarada en este ámbito."
-                )
-            else:
-                print(f"DEBUG: _visit_for_assignment: LHS ID '{var_name}' FOUND: {symbol}")
-
-            if exp_node: self._visit(exp_node) # Visit the RHS expression
-        else:
-            self.symbol_table.add_error(f"Error semántico [línea {node.lineno if node else -1}]: Estructura de for_assignment inválida.")
-            self._generic_visit(node)
-
-
-    # --- Expression visitors ---
-    def _visit_exp(self, node): # exp -> E
-        if node.children and len(node.children) > 0: self._visit(node.children[0])
-        # else: error or epsilon, handle as per grammar for 'exp'
-
-    def _visit_e(self, node): # E -> C E_rest
-        if len(node.children) == 2:
-            self._visit(node.children[0]) # Visit C
-            self._visit(node.children[1]) # Visit E_rest
-        # else: error in E structure
-
-    def _visit_e_rest(self, node): # E_rest -> OR C E_rest | ε
-        if node.children and node.children[0].value != 'ε':
-            # Children: OR_OPERATOR_NODE, C_NODE, E_REST_NODE
-            if len(node.children) == 3:
-                 self._visit(node.children[1]) # Visit C
-                 self._visit(node.children[2]) # Visit E_rest
-            # else: error in E_rest structure (OR without all parts)
-
-    def _visit_c(self, node): # C -> R C_rest
-        if len(node.children) == 2:
-            self._visit(node.children[0]) # Visit R
-            self._visit(node.children[1]) # Visit C_rest
-        # else: error in C structure
-
-    def _visit_c_rest(self, node): # C_rest -> AND R C_rest | ε
-        if node.children and node.children[0].value != 'ε':
-            # Children: AND_OPERATOR_NODE, R_NODE, C_REST_NODE
-            if len(node.children) == 3:
-                self._visit(node.children[1]) # Visit R
-                self._visit(node.children[2]) # Visit C_rest
-            # else: error in C_rest structure
-
-    def _visit_r(self, node): # R -> T R_rest
-        if len(node.children) == 2:
-            self._visit(node.children[0]) # Visit T
-            self._visit(node.children[1]) # Visit R_rest
-        # else: error in R structure
-
-    def _visit_r_rest(self, node): # R_rest -> (EQ | NE | LT | GT | LE | GE) T R_rest | ε
-        if node.children and node.children[0].value != 'ε':
-            # Children: RELATIONAL_OPERATOR_NODE, T_NODE, R_REST_NODE
-            if len(node.children) == 3:
-                self._visit(node.children[1]) # Visit T
-                self._visit(node.children[2]) # Visit R_rest
-            # else: error in R_rest structure
-
-    def _visit_t(self, node): # T -> F T_rest
-        if len(node.children) == 2:
-            self._visit(node.children[0]) # Visit F
-            self._visit(node.children[1]) # Visit T_rest
-        # else: error in T structure
-
-    def _visit_t_rest(self, node): # T_rest -> (PLUS | MINUS) F T_rest | ε
-        if node.children and node.children[0].value != 'ε':
-            # Children: ADDITIVE_OPERATOR_NODE, F_NODE, T_REST_NODE
-            if len(node.children) == 3:
-                self._visit(node.children[1]) # Visit F
-                self._visit(node.children[2]) # Visit T_rest
-            # else: error in T_rest structure
-
-    def _visit_f(self, node): # F -> A F_rest
-        if len(node.children) == 2:
-            self._visit(node.children[0]) # Visit A
-            self._visit(node.children[1]) # Visit F_rest
-        # else: error in F structure
-
-    def _visit_f_rest(self, node): # F_rest -> (TIMES | DIVIDE | MOD) A F_rest | ε
-        if node.children and node.children[0].value != 'ε':
-            # Children: MULTIPLICATIVE_OPERATOR_NODE, A_NODE, F_REST_NODE
-            if len(node.children) == 3:
-                self._visit(node.children[1]) # Visit A
-                self._visit(node.children[2]) # Visit F_rest
-            # else: error in F_rest structure
-
-    def _visit_a(self, node):
-        # A -> LPAREN exp RPAREN | ID llamada_func | ID | INT_NUM | TRUE | FALSE | STRING
-        # Note: Grammar from image seems to be `A -> ID | ID llamada_func | ...`
-        # This implies `A` could have 1 child (ID) or 2 children (ID, llamada_func)
-        if not node.children or len(node.children) == 0:
-            print(f"DEBUG: _visit_a: Node 'A' (line {node.lineno if node else 'N/A'}) has no children.")
-            return
-
-        first_rhs_node = node.children[0]
-        print(f"DEBUG: _visit_a: first_rhs_node.value = '{first_rhs_node.value}', type = {type(first_rhs_node.value)}, lineno = {first_rhs_node.lineno if hasattr(first_rhs_node, 'lineno') else 'N/A'}")
-
-        if first_rhs_node.value == 'LPAREN':
-            # LPAREN exp RPAREN
-            if len(node.children) == 3 and node.children[1] and node.children[2] and node.children[2].value == 'RPAREN': # LPAREN, exp, RPAREN
-                print(f"DEBUG: _visit_a: Visiting parenthesized expression.")
-                self._visit(node.children[1]) # Visit exp
-            else:
-                self.symbol_table.add_error(f"Error semántico [línea {first_rhs_node.lineno if hasattr(first_rhs_node, 'lineno') else node.lineno}]: Estructura de paréntesis desbalanceada.")
-
-        elif isinstance(first_rhs_node.value, (int, float, bool)):
-            # This is a literal (e.g., INT_NUM, FLOAT_NUM, TRUE, FALSE whose values were converted by lexer/parser)
-            print(f"DEBUG: _visit_a: Literal numeric or boolean '{first_rhs_node.value}' found. No action.")
-            pass # No declaration check needed for literals.
-
-        # Check for string literals explicitly if they are not converted to other types by lexer/parser
-        # The grammar has A -> ID ... | STRING_LITERAL (implicitly via LEXEME_TERMINALS)
-        # So, if first_rhs_node.value is a string, it could be an ID or a string literal.
-        # We assume if LEXEME_TERMINALS converted 'STRING' type tokens, their value would be the string content.
-        # A 'STRING' token type would be different from an 'ID' token type whose value is also a string.
-        # This part relies on how parser sets node.value for ID vs other string-valued terminals.
-        # For now, if it's a string and not LPAREN, it's treated as an ID.
-        # This might need adjustment if 'STRING_LITERAL' nodes appear here with their string content as .value
-        # and need to be distinguished from IDs.
-        # The current parser's LEXEME_TERMINALS includes "STRING", so its value would be the string content.
-        # However, an ID's value is also its string content.
-        # A robust solution would be to check the *original token type* of first_rhs_node if available.
-        # Lacking that, we use a heuristic: known keywords/types vs potential IDs.
-        # The previous `is_id_node_structurally` was: `first_child.value not in ['LPAREN', 'INT_NUM', 'TRUE', 'FALSE', 'STRING']`
-        # This was problematic because 'INT_NUM', 'TRUE', 'FALSE', 'STRING' are token TYPE names,
-        # while first_child.value for these is the actual value (e.g., 10, True, "hello").
-
-        # Refined logic: if it's not LPAREN and not an instance of int/float/bool, assume it's an ID (string).
-        # String literals like "hello" would also fall into this 'else' if not handled separately.
-        # If the grammar distinguishes A -> ID and A -> STRING_LITERAL, the node value might be 'ID' or 'STRING_LITERAL'
-        # before lexeme replacement, or the lexeme itself after.
-        # Given current AST construction, node.value is the lexeme for ID, and the content for STRING_LITERAL.
-        # Let's assume any string value here that isn't 'LPAREN' is an ID to be looked up.
-        # This means string literals would be incorrectly looked up.
-        # This needs Node.original_token_type to be truly robust.
-        # For now, let's stick to the provided logic and see.
-        # The provided logic was:
-        # is_id_node_structurally = first_child.value not in ['LPAREN', 'INT_NUM', 'TRUE', 'FALSE', 'STRING'] (problematic)
-
-        # Corrected approach:
-        # 1. Handle LPAREN
-        # 2. Handle converted literals (int, float, bool from lexer)
-        # 3. Assume other strings are IDs. This means string literals like "text" will be treated as IDs.
-        #    This is a known limitation without original_token_type.
-        elif isinstance(first_rhs_node.value, str):
-            # This will treat string literals like "abc" as IDs if they reach here.
-            # It also treats actual identifiers like 'myVar' as IDs.
-            id_node = first_rhs_node
             var_name = id_node.value
             var_lineno = id_node.lineno
 
-            print(f"DEBUG: _visit_a (ID branch): Checking usage of ID '{var_name}' (line {var_lineno})")
             symbol = self.symbol_table.lookup_symbol(var_name)
             if symbol is None:
-                print(f"DEBUG: _visit_a (ID branch): ID '{var_name}' NOT FOUND in symbol table.")
                 self.symbol_table.add_error(
-                    f"Error semántico [línea {var_lineno}]: La variable '{var_name}' no ha sido declarada en este ámbito."
+                    f"Error semántico [línea {var_lineno}]: La variable '{var_name}' no ha sido declarada (en asignación de for)."
                 )
-            else:
-                print(f"DEBUG: _visit_a (ID branch): ID '{var_name}' FOUND: {symbol}")
+                return TYPE_ERROR
 
-            # Check for function call part: A -> ID llamada_func
-            if len(node.children) > 1 and node.children[1] and node.children[1].value == 'llamada_func':
-                print(f"DEBUG: _visit_a (ID branch): Visiting llamada_func for '{var_name}'.")
-                if node.children[1]: self._visit(node.children[1])
+            lhs_type = symbol['type']
+            if lhs_type.startswith("FUNCTION"):
+                 self.symbol_table.add_error(f"Error semántico [línea {var_lineno}]: No se puede asignar a una función '{var_name}' en bucle for.")
+                 return TYPE_ERROR
+
+            rhs_type = self._visit(exp_node)
+            if rhs_type == TYPE_ERROR:
+                return TYPE_ERROR
+
+            self._check_assignment_compatibility(lhs_type, rhs_type, var_lineno, var_name)
+            return None # Assignment in for has no type itself
         else:
-            # Unrecognized structure for 'A' node's first child or unexpected type
-            print(f"DEBUG: _visit_a: Unrecognized structure or type for A's child: '{first_rhs_node.value}' type {type(first_rhs_node.value)}. Line: {first_rhs_node.lineno if hasattr(first_rhs_node, 'lineno') else 'N/A'}")
-            self._generic_visit(node) # Fallback
+            self.symbol_table.add_error(f"Error semántico [línea {node.lineno if node else -1}]: Estructura de for_assignment inválida.")
+            return TYPE_ERROR
+
+    # --- Expression visitors ---
+    # These visitors should now return the inferred type of the expression, or TYPE_ERROR.
+
+    def _infer_binary_op_type(self, type1, type2, op, lineno):
+        # print(f"DEBUG: InferBinary: {type1} {op} {type2} at line {lineno}")
+        if type1 == TYPE_ERROR or type2 == TYPE_ERROR:
+            return TYPE_ERROR
+
+        # Define valid operations and promotions
+        # Arithmetic ops: +, -, *, /
+        if op in ['PLUS', 'MINUS', 'TIMES', 'DIVIDE']:
+            if type1 == 'int' and type2 == 'int': return 'int'
+            if (type1 == 'float' and type2 == 'float') or \
+               (type1 == 'int' and type2 == 'float') or \
+               (type1 == 'float' and type2 == 'int'): return 'float'
+            if type1 == 'string' and type2 == 'string' and op == 'PLUS': return 'string' # String concatenation
+
+            self.symbol_table.add_error(f"Error de tipo [línea {lineno}]: Operación aritmética '{op}' inválida entre '{type1}' y '{type2}'.")
+            return TYPE_ERROR
+
+        # Modulo op: %
+        if op == 'MOD':
+            if type1 == 'int' and type2 == 'int': return 'int'
+            self.symbol_table.add_error(f"Error de tipo [línea {lineno}]: Operación módulo '{op}' inválida entre '{type1}' y '{type2}'. Solo int % int permitido.")
+            return TYPE_ERROR
+
+        # Relational ops: EQ, NE, LT, GT, LE, GE -> always bool
+        if op in ['EQ', 'NE', 'LT', 'GT', 'LE', 'GE']:
+            # Allow comparison between int/float, or string/string, or bool/bool
+            if (type1 in ['int', 'float'] and type2 in ['int', 'float']) or \
+               (type1 == 'string' and type2 == 'string') or \
+               (type1 == 'bool' and type2 == 'bool'):
+                return 'bool'
+            self.symbol_table.add_error(f"Error de tipo [línea {lineno}]: Comparación '{op}' inválida entre '{type1}' y '{type2}'.")
+            return TYPE_ERROR
+
+        # Logical ops: AND, OR -> bool op bool = bool
+        if op in ['AND', 'OR']:
+            if type1 == 'bool' and type2 == 'bool': return 'bool'
+            self.symbol_table.add_error(f"Error de tipo [línea {lineno}]: Operación lógica '{op}' inválida entre '{type1}' y '{type2}'. Se esperan booleanos.")
+            return TYPE_ERROR
+
+        self.symbol_table.add_error(f"Error Interno: Operador binario desconocido '{op}' en inferencia de tipos.")
+        return TYPE_ERROR
+
+
+    def _visit_exp(self, node): # exp -> E
+        if node.children and len(node.children) > 0:
+            return self._visit(node.children[0]) # Type of E
+        return TYPE_ERROR
+
+    def _visit_e(self, node): # E -> C E_rest
+        if len(node.children) == 2:
+            type_c = self._visit(node.children[0]) # Visit C
+            if type_c == TYPE_ERROR: return TYPE_ERROR
+            # Pass type_c to E_rest, which might use it as LHS of an OR
+            return self._visit_e_rest(node.children[1], type_c)
+        return TYPE_ERROR
+
+    def _visit_e_rest(self, node, lhs_type): # E_rest -> OR C E_rest | ε
+        if node.children and node.children[0].value != 'ε':
+            # Children: OR_OPERATOR_NODE, C_NODE, E_REST_NODE
+            if len(node.children) == 3:
+                op_node = node.children[0] # e.g. Node('OR')
+                op_lineno = op_node.lineno
+
+                type_c = self._visit(node.children[1]) # Visit C (RHS of OR)
+                if type_c == TYPE_ERROR: return TYPE_ERROR
+
+                current_result_type = self._infer_binary_op_type(lhs_type, type_c, op_node.value, op_lineno)
+                if current_result_type == TYPE_ERROR: return TYPE_ERROR
+
+                # Recursively call E_rest with the new result type as its LHS
+                return self._visit_e_rest(node.children[2], current_result_type)
+            return TYPE_ERROR # Malformed E_rest
+        return lhs_type # Epsilon case, type is whatever was passed from E or previous E_rest
+
+    def _visit_c(self, node): # C -> R C_rest
+        if len(node.children) == 2:
+            type_r = self._visit(node.children[0])
+            if type_r == TYPE_ERROR: return TYPE_ERROR
+            return self._visit_c_rest(node.children[1], type_r)
+        return TYPE_ERROR
+
+    def _visit_c_rest(self, node, lhs_type): # C_rest -> AND R C_rest | ε
+        if node.children and node.children[0].value != 'ε':
+            if len(node.children) == 3:
+                op_node = node.children[0]
+                op_lineno = op_node.lineno
+                type_r = self._visit(node.children[1])
+                if type_r == TYPE_ERROR: return TYPE_ERROR
+                current_result_type = self._infer_binary_op_type(lhs_type, type_r, op_node.value, op_lineno)
+                if current_result_type == TYPE_ERROR: return TYPE_ERROR
+                return self._visit_c_rest(node.children[2], current_result_type)
+            return TYPE_ERROR
+        return lhs_type
+
+    def _visit_r(self, node): # R -> T R_rest
+        if len(node.children) == 2:
+            type_t = self._visit(node.children[0])
+            if type_t == TYPE_ERROR: return TYPE_ERROR
+            return self._visit_r_rest(node.children[1], type_t)
+        return TYPE_ERROR
+
+    def _visit_r_rest(self, node, lhs_type): # R_rest -> (EQ | NE | LT | GT | LE | GE) T R_rest | ε
+        if node.children and node.children[0].value != 'ε':
+            if len(node.children) == 3:
+                op_node = node.children[0] # This is the relational operator node itself
+                op_lineno = op_node.lineno
+                type_t = self._visit(node.children[1])
+                if type_t == TYPE_ERROR: return TYPE_ERROR
+                current_result_type = self._infer_binary_op_type(lhs_type, type_t, op_node.value, op_lineno)
+                if current_result_type == TYPE_ERROR: return TYPE_ERROR
+                # Relational ops result in bool, but further ops in R_rest might chain with this bool.
+                # Example: a < b < c is not typical direct chaining in C-like languages (it's (a<b)<c)
+                # Assuming R_rest implies operations of same precedence level, so result type is passed.
+                return self._visit_r_rest(node.children[2], current_result_type)
+            return TYPE_ERROR
+        return lhs_type
+
+    def _visit_t(self, node): # T -> F T_rest
+        if len(node.children) == 2:
+            type_f = self._visit(node.children[0])
+            if type_f == TYPE_ERROR: return TYPE_ERROR
+            return self._visit_t_rest(node.children[1], type_f)
+        return TYPE_ERROR
+
+    def _visit_t_rest(self, node, lhs_type): # T_rest -> (PLUS | MINUS) F T_rest | ε
+        if node.children and node.children[0].value != 'ε':
+            if len(node.children) == 3:
+                op_node = node.children[0]
+                op_lineno = op_node.lineno
+                type_f = self._visit(node.children[1])
+                if type_f == TYPE_ERROR: return TYPE_ERROR
+                current_result_type = self._infer_binary_op_type(lhs_type, type_f, op_node.value, op_lineno)
+                if current_result_type == TYPE_ERROR: return TYPE_ERROR
+                return self._visit_t_rest(node.children[2], current_result_type)
+            return TYPE_ERROR
+        return lhs_type
+
+    def _visit_f(self, node): # F -> A F_rest
+        if len(node.children) == 2:
+            type_a = self._visit(node.children[0])
+            if type_a == TYPE_ERROR: return TYPE_ERROR
+            return self._visit_f_rest(node.children[1], type_a)
+        return TYPE_ERROR
+
+    def _visit_f_rest(self, node, lhs_type): # F_rest -> (TIMES | DIVIDE | MOD) A F_rest | ε
+        if node.children and node.children[0].value != 'ε':
+            if len(node.children) == 3:
+                op_node = node.children[0]
+                op_lineno = op_node.lineno
+                type_a = self._visit(node.children[1])
+                if type_a == TYPE_ERROR: return TYPE_ERROR
+                current_result_type = self._infer_binary_op_type(lhs_type, type_a, op_node.value, op_lineno)
+                if current_result_type == TYPE_ERROR: return TYPE_ERROR
+                return self._visit_f_rest(node.children[2], current_result_type)
+            return TYPE_ERROR
+        return lhs_type
+
+    def _visit_a(self, node):
+        # A -> LPAREN exp RPAREN | ID llamada_func | ID | INT_NUM | TRUE | FALSE | STRING_LITERAL (via lexeme value)
+
+        # DEBUGGING:
+        # print(f"DEBUG _visit_a: Node '{node.value}' (lineno {node.lineno}), num_children: {len(node.children) if node.children else 0}")
+        # if node.children:
+        #     for i, child in enumerate(node.children):
+        #         print(f"  Child {i}: value='{child.value}', type='{type(child.value).__name__}'")
+        #         if hasattr(child, 'children') and child.children:
+        #              print(f"    Grandchildren: {[gc.value for gc in child.children]}")
+        # END DEBUGGING
+
+        if not node.children or len(node.children) == 0:
+            self.symbol_table.add_error(f"Error semántico [línea {node.lineno if node else -1}]: Nodo 'A' sin hijos.")
+            return TYPE_ERROR
+
+        first_child = node.children[0]
+        # print(f"DEBUG _visit_a: first_child.value='{first_child.value}', type={type(first_child.value)}, lineno={first_child.lineno}")
+
+        if first_child.value == 'LPAREN': # LPAREN exp RPAREN
+            if len(node.children) == 3 and node.children[1].value == 'exp' and node.children[2].value == 'RPAREN':
+                return self._visit(node.children[1]) # Type of enclosed expression
+            else:
+                self.symbol_table.add_error(f"Error semántico [línea {first_child.lineno}]: Paréntesis desbalanceados o expresión faltante.")
+                return TYPE_ERROR
+
+        if isinstance(first_child.value, int): return 'int'
+        if isinstance(first_child.value, float): return 'float'
+        if isinstance(first_child.value, bool): return 'bool'
+
+        if isinstance(first_child.value, str): # Could be ID or string literal (if parser makes it so)
+            id_name = first_child.value # This is the ID lexeme or string content
+            id_lineno = first_child.lineno
+            symbol_info = self.symbol_table.lookup_symbol(id_name)
+
+            is_actual_call = False
+            if len(node.children) > 1 and node.children[1].value == 'llamada_func':
+                llamada_func_node = node.children[1]
+                # Check if llamada_func is epsilon (empty children or child is epsilon node)
+                # or a real call (children are LPAREN, lista_args, RPAREN)
+                if llamada_func_node.children and llamada_func_node.children[0].value != 'ε':
+                    # This means llamada_func -> LPAREN lista_args RPAREN
+                    is_actual_call = True
+
+            if is_actual_call:
+                # This is an actual function call
+                if symbol_info is None or not symbol_info['type'].startswith("FUNCTION"):
+                    self.symbol_table.add_error(f"Error semántico [línea {id_lineno}]: '{id_name}' no es una función declarada o no se puede llamar.")
+                    return TYPE_ERROR
+
+                # Function call: ID LPAREN lista_args RPAREN
+                # symbol_info['type'] is like "FUNCTION (INT, FLOAT) -> VOID"
+                # symbol_info['param_types'] is like ['int', 'float']
+                expected_param_types = symbol_info.get('param_types', [])
+
+                llamada_func_node = node.children[1] # Node('llamada_func')
+
+                # Ensure llamada_func_node has the expected structure for a call (LPAREN lista_args RPAREN)
+                # This was already implicitly checked by is_actual_call logic, but an explicit structural check here is safer.
+                if not (llamada_func_node.children and \
+                        len(llamada_func_node.children) == 3 and \
+                        llamada_func_node.children[0].value == 'LPAREN' and \
+                        llamada_func_node.children[1].value == 'lista_args' and \
+                        llamada_func_node.children[2].value == 'RPAREN'):
+                     self.symbol_table.add_error(f"Error semántico [línea {id_lineno}]: Llamada a función '{id_name}' mal formada (estructura interna).")
+                     return TYPE_ERROR
+
+                lista_args_node = llamada_func_node.children[1] # Node('lista_args')
+                actual_arg_types = self._collect_arg_types(lista_args_node)
+                if actual_arg_types == TYPE_ERROR: return TYPE_ERROR
+
+                if len(actual_arg_types) != len(expected_param_types):
+                    self.symbol_table.add_error(f"Error de tipo [línea {id_lineno}]: La función '{id_name}' esperaba {len(expected_param_types)} argumentos, pero recibió {len(actual_arg_types)}.")
+                    return TYPE_ERROR
+
+                for i, (expected, actual) in enumerate(zip(expected_param_types, actual_arg_types)):
+                    if not self._check_assignment_compatibility(expected, actual, id_lineno, f"argumento {i+1} de '{id_name}'"):
+                        # _check_assignment_compatibility already adds error
+                        return TYPE_ERROR
+
+                # Extract return type from "FUNCTION (...) -> RETURN_TYPE"
+                return_type_str = symbol_info['type'].split(' -> ')[-1].lower()
+                return return_type_str if return_type_str else TYPE_ERROR # Should always have return type
+
+            elif symbol_info: # It's an ID (variable), or a function name used as var (is_actual_call is False)
+                if symbol_info['type'].startswith("FUNCTION"):
+                    # Using function name as a variable without calling it (e.g. `myFunc + 1`)
+                    # This is an error because is_actual_call is False.
+                    self.symbol_table.add_error(f"Error semántico [línea {id_lineno}]: El nombre de función '{id_name}' se usó como variable.")
+                    return TYPE_ERROR
+                return symbol_info['type'] # Type of the variable
+
+            else: # Not an actual call, and not in symbol table.
+                  # This means id_name is an undeclared identifier.
+                  # String literals need a different handling based on parser output.
+                  # If parser creates a node with original_token_type='STRING_LITERAL', we'd check that.
+                  # Lacking that, if it's a string and not a known ID, it's an undeclared ID.
+                self.symbol_table.add_error(f"Error semántico [línea {id_lineno}]: Identificador no declarado '{id_name}'.")
+                return TYPE_ERROR
+            # This `else` means `isinstance(first_child.value, str)` was false, and it wasn't int/float/bool/LPAREN.
+            # This shouldn't happen with the given grammar for A.
+            self.symbol_table.add_error(f"Error Interno: Tipo de operando desconocido en 'A': '{first_child.value}' (tipo {type(first_child.value).__name__}) en línea {first_child.lineno}.")
+            return TYPE_ERROR
+
+        # Fallback for any other structure of A not covered.
+        self.symbol_table.add_error(f"Error semántico [línea {node.lineno if node else -1}]: Estructura de operando 'A' inválida.")
+        return TYPE_ERROR
+
+    def _collect_arg_types(self, lista_args_node):
+        # lista_args -> exp lista_args_rest | ε
+        types = []
+        current_lista_node = lista_args_node
+        while current_lista_node and current_lista_node.children and current_lista_node.children[0].value != 'ε':
+            # First child of lista_args is 'exp' or first child of lista_args_rest is 'exp' (after COMMA)
+            exp_node = None
+            next_lista_node = None
+
+            if current_lista_node.value == 'lista_args': # Top level: lista_args -> exp lista_args_rest
+                if len(current_lista_node.children) == 2:
+                    exp_node = current_lista_node.children[0]
+                    next_lista_node = current_lista_node.children[1] # lista_args_rest
+                else: return TYPE_ERROR # Malformed
+            elif current_lista_node.value == 'lista_args_rest': # Recursive: lista_args_rest -> COMMA exp lista_args_rest
+                if len(current_lista_node.children) == 3: # COMMA, exp, lista_args_rest
+                    exp_node = current_lista_node.children[1]
+                    next_lista_node = current_lista_node.children[2]
+                else: return TYPE_ERROR # Malformed
+            else: # Should not happen
+                return TYPE_ERROR
+
+            if not exp_node or exp_node.value != 'exp': return TYPE_ERROR # Expected exp
+
+            arg_type = self._visit(exp_node)
+            if arg_type == TYPE_ERROR: return TYPE_ERROR
+            types.append(arg_type)
+
+            current_lista_node = next_lista_node # Move to the _rest part
+            if not next_lista_node or not next_lista_node.children or next_lista_node.children[0].value == 'ε':
+                break # End of arguments
+        return types
+
 
     # --- Function call related basic traversal (arguments are expressions) ---
     def _visit_llamada_func(self, node):
-        # llamada_func -> LPAREN lista_args RPAREN | ε (ε means it's just ID, not ID())
-        # If called, it means this node exists. If its children[0] is epsilon, it's `ID` not `ID()`.
-        # The grammar `A -> ID | ID llamada_func` means if `llamada_func` is present, it's `ID()`.
-        # If `llamada_func` has children `LPAREN, lista_args, RPAREN`.
-        if node.children and node.children[0].value != 'ε': # This epsilon is for `llamada_func -> ε` case
+        # This node represents the ( ... ) part of a function call.
+        # It's visited as part of _visit_a for `ID llamada_func` or `_visit_instruccion` for call statements.
+        # The primary role here is to facilitate argument type collection if called directly,
+        # but _collect_arg_types is more targeted.
+        # If this method is called, it implies the call structure is valid.
+        # It doesn't "return" a type itself; the type of a call is the function's return type, handled in _visit_a.
+        if node.children and node.children[0].value != 'ε':
             if len(node.children) == 3 and node.children[0].value == 'LPAREN': # LPAREN, lista_args, RPAREN
-                self._visit(node.children[1]) # Visit lista_args
-            # else: error in llamada_func structure
-        # If `llamada_func -> ε`, it means it was just an ID usage, not a call. No children to visit.
+                # Argument types are checked by the caller (_visit_a or _visit_instruccion via _collect_arg_types)
+                # Visiting lista_args here would re-evaluate/re-check types, which is redundant if caller does it.
+                # For now, let this be a simple traversal.
+                return self._visit(node.children[1]) # Visit lista_args, effectively does nothing new if already checked
+            else:
+                self.symbol_table.add_error(f"Error semántico [línea {node.lineno}]: Estructura de llamada a función inválida.")
+                return TYPE_ERROR
+        return None # No specific type for the call construct itself, or epsilon case (no call)
 
 
     def _visit_lista_args(self, node):
         # lista_args -> exp lista_args_rest | ε
+        # This is mainly for traversal if called independently.
+        # Type collection is done by _collect_arg_types.
         if node.children and node.children[0].value != 'ε':
-            # Children: exp, lista_args_rest
             if len(node.children) == 2:
-                self._visit(node.children[0]) # Visit exp
-                self._visit(node.children[1]) # Visit lista_args_rest
-            # else: error in lista_args structure
+                exp_type = self._visit(node.children[0]) # Visit exp
+                if exp_type == TYPE_ERROR: return TYPE_ERROR
+                rest_type = self._visit(node.children[1]) # Visit lista_args_rest
+                if rest_type == TYPE_ERROR: return TYPE_ERROR
+                return None # List of args doesn't have a single type
+            else:
+                self.symbol_table.add_error(f"Error semántico [línea {node.lineno}]: Estructura de lista de argumentos inválida.")
+                return TYPE_ERROR
+        return None # Epsilon case
 
     def _visit_lista_args_rest(self, node):
         # lista_args_rest -> COMMA exp lista_args_rest | ε
         if node.children and node.children[0].value != 'ε':
-            # Children: COMMA, exp, lista_args_rest
-            if len(node.children) == 3:
-                self._visit(node.children[1]) # Visit exp
-                self._visit(node.children[2]) # Visit lista_args_rest
-            # else: error in lista_args_rest structure
+            if len(node.children) == 3: # COMMA, exp, lista_args_rest
+                exp_type = self._visit(node.children[1]) # Visit exp
+                if exp_type == TYPE_ERROR: return TYPE_ERROR
+                rest_type = self._visit(node.children[2]) # Visit lista_args_rest
+                if rest_type == TYPE_ERROR: return TYPE_ERROR
+                return None
+            else:
+                self.symbol_table.add_error(f"Error semántico [línea {node.lineno}]: Estructura de continuación de lista de argumentos inválida.")
+                return TYPE_ERROR
+        return None
 
     def _visit_print(self, node):
-        # Grammar for Print: Print -> PRINT LPAREN exp RPAREN SEMI
-        # Node 'Print' (dispatched from _visit_instruccion)
-        # Assuming children of Node('Print') are [PRINT_KW_NODE, LPAREN_NODE, EXP_NODE, RPAREN_NODE, SEMI_NODE]
-        # Or, if grammar rule for instruccion is `Print_inst SEMI` and Print_inst is `PRINT LPAREN exp RPAREN`
-        # then Node('Print') would have [PRINT_KW, LPAREN, exp, RPAREN]
-
-        # Let's assume node.value is 'Print' (the non-terminal for the rule)
-        # and its children are directly from its RHS in the grammar.
-        # If Print -> PRINT LPAREN exp RPAREN (and SEMI is handled by instruccion)
+        # Print -> PRINT LPAREN exp RPAREN (SEMI handled by instruccion)
         if len(node.children) == 4 and node.children[0].value == 'PRINT' and \
            node.children[1].value == 'LPAREN' and node.children[2].value == 'exp' and \
            node.children[3].value == 'RPAREN':
-            self._visit(node.children[2]) # Visit the expression child
+            exp_type = self._visit(node.children[2]) # Visit the expression child
+            if exp_type == TYPE_ERROR:
+                return TYPE_ERROR
+            # Optionally, check if exp_type is printable (e.g., not function type if functions not first-class)
+            # For now, allow printing any validly typed expression.
+            return None # Print statement has no type
         else:
             self.symbol_table.add_error(f"Error semántico [línea {node.lineno if node else -1}]: Estructura de Print inválida.")
-            self._generic_visit(node)
+            return TYPE_ERROR
 
 
     def _visit_if(self, node): # If -> IF LPAREN exp RPAREN bloque Else
@@ -637,74 +920,127 @@ class SemanticAnalyzer:
            node.children[1].value == 'LPAREN' and node.children[2].value == 'exp' and \
            node.children[3].value == 'RPAREN' and node.children[4].value == 'bloque' and \
            node.children[5].value == 'Else':
-            if node.children[2]: self._visit(node.children[2]) # Visit exp
-            if node.children[4]: self._visit(node.children[4]) # Visit bloque
-            if node.children[5]: self._visit(node.children[5]) # Visit Else
+
+            cond_type = self._visit(node.children[2]) # Visit exp (condition)
+            if cond_type == TYPE_ERROR: return TYPE_ERROR
+            if cond_type != 'bool':
+                self.symbol_table.add_error(f"Error de tipo [línea {node.children[2].lineno}]: La condición del If debe ser de tipo bool, no '{cond_type}'.")
+                # Continue checking other parts if desired, or return TYPE_ERROR
+
+            if self._visit(node.children[4]) == TYPE_ERROR: return TYPE_ERROR # Visit bloque
+            if self._visit(node.children[5]) == TYPE_ERROR: return TYPE_ERROR # Visit Else
+            return None # If statement has no type
         else:
             self.symbol_table.add_error(f"Error semántico [línea {node.lineno if node else -1}]: Estructura de If inválida.")
-            self._generic_visit(node)
+            return TYPE_ERROR
 
     def _visit_else(self, node): # Else -> ELSE bloque | ε
         if node.children and node.children[0].value != 'ε':
             # Children: ELSE_KW_NODE, bloque_NODE
-            if len(node.children) == 2 and node.children[0].value == 'ELSE' and node.children[1]:
-                 self._visit(node.children[1]) # Visit bloque
+            if len(node.children) == 2 and node.children[0].value == 'ELSE' and node.children[1].value == 'bloque':
+                 return self._visit(node.children[1]) # Visit bloque
             else:
                  self.symbol_table.add_error(f"Error semántico [línea {node.lineno if node else -1}]: Estructura de Else inválida.")
-                 self._generic_visit(node)
-        # Else: epsilon, do nothing
+                 return TYPE_ERROR
+        return None # Epsilon case
 
     def _visit_while(self, node): # While -> WHILE LPAREN exp RPAREN bloque
         if node.children and len(node.children) == 5 and node.children[0].value == 'WHILE' and \
            node.children[1].value == 'LPAREN' and node.children[2].value == 'exp' and \
            node.children[3].value == 'RPAREN' and node.children[4].value == 'bloque':
-            if node.children[2]: self._visit(node.children[2]) # Visit exp
-            if node.children[4]: self._visit(node.children[4]) # Visit bloque
+
+            cond_type = self._visit(node.children[2]) # Visit exp (condition)
+            if cond_type == TYPE_ERROR: return TYPE_ERROR
+            if cond_type != 'bool':
+                self.symbol_table.add_error(f"Error de tipo [línea {node.children[2].lineno}]: La condición del While debe ser de tipo bool, no '{cond_type}'.")
+
+            if self._visit(node.children[4]) == TYPE_ERROR: return TYPE_ERROR # Visit bloque
+            return None # While statement has no type
         else:
             self.symbol_table.add_error(f"Error semántico [línea {node.lineno if node else -1}]: Estructura de While inválida.")
-            self._generic_visit(node)
+            return TYPE_ERROR
 
     def _visit_for(self, node): # For -> FOR LPAREN for_assignment SEMI exp SEMI for_assignment RPAREN bloque
-        if node.children and len(node.children) == 9 and node.children[0].value == 'FOR' and \
+        if node.children and len(node.children) == 9 and \
+           node.children[0].value == 'FOR' and \
            node.children[1].value == 'LPAREN' and node.children[2].value == 'for_assignment' and \
            node.children[3].value == 'SEMI' and node.children[4].value == 'exp' and \
            node.children[5].value == 'SEMI' and node.children[6].value == 'for_assignment' and \
            node.children[7].value == 'RPAREN' and node.children[8].value == 'bloque':
-            if node.children[2]: self._visit(node.children[2]) # Visit for_assignment1
-            if node.children[4]: self._visit(node.children[4]) # Visit exp
-            if node.children[6]: self._visit(node.children[6]) # Visit for_assignment2
-            if node.children[8]: self._visit(node.children[8]) # Visit bloque
+
+            if self._visit(node.children[2]) == TYPE_ERROR: return TYPE_ERROR # Visit for_assignment1 (init)
+
+            cond_type = self._visit(node.children[4]) # Visit exp (condition)
+            if cond_type == TYPE_ERROR: return TYPE_ERROR
+            if cond_type != 'bool' and cond_type is not None : # None if exp is empty, grammar might need exp_opt
+                self.symbol_table.add_error(f"Error de tipo [línea {node.children[4].lineno}]: La condición del For debe ser de tipo bool, no '{cond_type}'.")
+
+            if self._visit(node.children[6]) == TYPE_ERROR: return TYPE_ERROR # Visit for_assignment2 (increment)
+            if self._visit(node.children[8]) == TYPE_ERROR: return TYPE_ERROR # Visit bloque
+            return None # For statement has no type
         else:
             self.symbol_table.add_error(f"Error semántico [línea {node.lineno if node else -1}]: Estructura de For inválida.")
-            self._generic_visit(node)
+            return TYPE_ERROR
 
-    def _visit_return(self, node): # Return -> RETURN exp_opt SEMI
-        # If _visit_instruccion calls _visit(Node('Return')), then Node('Return')'s children are [RETURN_KW, exp_opt, SEMI]
-        # or [RETURN_KW, exp_opt] if SEMI handled by instruccion.
-        # Assuming Node('Return') has children [RETURN_KW, exp_opt, SEMI]
+    def _visit_return(self, node): # Return -> RETURN exp_opt SEMI (SEMI handled by instruccion)
+        # Assuming node.value is 'Return' and children are [RETURN_KW, exp_opt] or [RETURN_KW, exp_opt, SEMI]
+        # Let's assume children are [RETURN_KW, exp_opt, SEMI] as per typical full rule node
+        exp_opt_node = None
+        return_kw_lineno = node.lineno # Line of RETURN keyword
+
         if len(node.children) == 3 and node.children[0].value == 'RETURN' and \
            node.children[1].value == 'exp_opt' and node.children[2].value == 'SEMI':
-            self._visit(node.children[1]) # visit exp_opt
-        # Simplified: Assuming Node('Return') has one child 'exp_opt' if SEMI is not part of its direct rule
-        elif len(node.children) == 1 and node.children[0].value == 'exp_opt': # Alternative if RETURN is the node value
-             self._visit(node.children[0]) # visit exp_opt
-        else:
-            # This case handles if Return -> RETURN SEMI (empty return)
-            if len(node.children) == 2 and node.children[0].value == 'RETURN' and node.children[1].value == 'SEMI':
-                pass # Valid empty return if exp_opt can be completely absent
-            else:
-                self.symbol_table.add_error(f"Error semántico [línea {node.lineno if node else -1}]: Estructura de Return inválida.")
-                self._generic_visit(node)
+            exp_opt_node = node.children[1]
+            return_kw_lineno = node.children[0].lineno
+        elif len(node.children) == 1 and node.children[0].value == 'exp_opt': # If called on 'Return' node from instruccion -> Return
+             exp_opt_node = node.children[0] # Return node's child is exp_opt
+             # lineno of Return node itself
+        elif len(node.children) == 2 and node.children[0].value == 'RETURN' and node.children[1].value == 'SEMI': # Return -> RETURN SEMI
+            exp_opt_node = None # No expression
+            return_kw_lineno = node.children[0].lineno
+        else: # Malformed
+            self.symbol_table.add_error(f"Error semántico [línea {return_kw_lineno}]: Estructura de Return inválida.")
+            return TYPE_ERROR
+
+        returned_type = None
+        if exp_opt_node and exp_opt_node.children and exp_opt_node.children[0].value != 'ε':
+            # exp_opt -> exp
+            returned_type = self._visit(exp_opt_node) # This will visit 'exp' child if exp_opt -> exp
+            if returned_type == TYPE_ERROR:
+                return TYPE_ERROR
+        else: # exp_opt -> ε (empty return)
+            returned_type = 'void'
+
+        expected_return_type = self.current_function_return_type
+        if not expected_return_type: # Should not happen if current_function_return_type is managed
+            self.symbol_table.add_error(f"Error Interno [línea {return_kw_lineno}]: No se pudo determinar el tipo de retorno esperado de la función actual '{self.current_function_name}'.")
+            return TYPE_ERROR
+
+        # Check compatibility: returned_type vs expected_return_type
+        if expected_return_type == 'void' and returned_type != 'void':
+            self.symbol_table.add_error(f"Error de tipo [línea {return_kw_lineno}]: La función '{self.current_function_name}' no debe retornar un valor (esperado: void, obtenido: {returned_type}).")
+            return TYPE_ERROR
+        if expected_return_type != 'void' and returned_type == 'void':
+            self.symbol_table.add_error(f"Error de tipo [línea {return_kw_lineno}]: La función '{self.current_function_name}' debe retornar un valor de tipo {expected_return_type} (obtenido: void).")
+            return TYPE_ERROR
+
+        if expected_return_type != 'void' and returned_type != 'void':
+            if not self._check_assignment_compatibility(expected_return_type, returned_type, return_kw_lineno, "valor de retorno"):
+                # Error already added by _check_assignment_compatibility
+                return TYPE_ERROR
+
+        return None # Return statement has no type
 
 
     def _visit_exp_opt(self, node): # exp_opt -> exp | ε
         if node.children and node.children[0].value != 'ε':
+            # Children: [Node('exp')]
             if len(node.children) == 1 and node.children[0].value == 'exp':
-                self._visit(node.children[0]) # visit exp
-            else:
+                return self._visit(node.children[0]) # visit exp, return its type
+            else: # Malformed
                 self.symbol_table.add_error(f"Error semántico [línea {node.lineno if node else -1}]: Estructura de exp_opt inválida.")
-                self._generic_visit(node)
-        # Else: epsilon, do nothing
+                return TYPE_ERROR
+        return 'void' # Epsilon case means effectively void type for return context
 
     # Add more _visit_xxx methods as needed for other non-terminals or specific terminals
     # that require special handling (e.g., _visit_declaracion, _visit_id for usage).
@@ -721,19 +1057,20 @@ if __name__ == '__main__':
 
     # Mock Node class for basic testing if Parser.Node is not available
     class MockNode:
-        def __init__(self, value, children=None, lineno=-1):
+        def __init__(self, value, children=None, lineno=-1, original_token_type=None): # Added original_token_type
             self.value = value
             self.children = children if children else []
             self.lineno = lineno
+            self.original_token_type = original_token_type
+
 
     # Example Mock AST: programa -> funciones -> funcion (as global int x;) -> funciones (epsilon)
     #                      -> funcion (main() {}) -> funciones (epsilon)
 
     # Global var: int x;
-    node_int = MockNode("INT", lineno=1)
-    node_tipo_int = MockNode("tipo", [node_int], lineno=1)
-    node_id_x = MockNode("ID", [], lineno=1) # Value would be 'x' after lexeme update
-    node_id_x.value = 'x'
+    node_int_kw = MockNode("INT", lineno=1) # Node for the keyword INT
+    node_tipo_int = MockNode("tipo", [node_int_kw], lineno=1)
+    node_id_x = MockNode("x", [], lineno=1, original_token_type='ID') # Value is lexeme 'x'
     node_epsilon_init = MockNode("ε", lineno=1)
     node_inicializacion_eps = MockNode("inicializacion", [node_epsilon_init], lineno=1)
     node_semi_global = MockNode("SEMI", lineno=1)

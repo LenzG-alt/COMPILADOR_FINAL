@@ -1,7 +1,7 @@
 class SymbolTable:
     def __init__(self):
         # Each scope_item is a dictionary: {'name': scope_context_name_str, 'symbols': {symbol_name_str: attribute_dict}}
-        # attribute_dict: {'type': type_str, 'line': line_int, 'scope_attr': value_for_ambito_column_str}
+        # attribute_dict: {'type': type_str, 'line': line_int, 'scope_attr': value_for_ambito_column_str, 'param_types': list_of_strings_or_None}
         self.scope_stack = [{'name': 'global', 'symbols': {}}] # Current stack for lookups
         self.all_created_scopes_data = [self.scope_stack[0]] # Persistent list of all scopes for reporting
         self.errors = []
@@ -27,9 +27,10 @@ class SymbolTable:
             self.add_error("System Error: Attempted to exit global scope.")
             return None
 
-    def add_symbol(self, name, type_val, lineno, declared_in_scope_name_attr):
+    def add_symbol(self, name, type_val, lineno, declared_in_scope_name_attr, param_types=None):
         # declared_in_scope_name_attr is the string that will appear in the 'Ámbito' column of the symbol table,
         # e.g., "global" for global variables, or the function's name like "main" for local variables.
+        # param_types: list of strings for parameter types if symbol is a function, else None.
         current_scope_data_on_stack = self.scope_stack[-1]
         current_symbols_dict = current_scope_data_on_stack['symbols']
         # current_scope_context = current_scope_data_on_stack['name'] # Actual name of the current scope level
@@ -38,14 +39,19 @@ class SymbolTable:
             existing_symbol = current_symbols_dict[name]
             # Use declared_in_scope_name_attr for the error message as it's contextually what the user sees for Ámbito
             self.add_error(
-                f"Error semántico [línea {lineno}]: La variable '{name}' ya ha sido declarada en el ámbito '{declared_in_scope_name_attr}' en la línea {existing_symbol['line']}."
+                f"Error semántico [línea {lineno}]: El símbolo '{name}' ya ha sido declarado en el ámbito '{declared_in_scope_name_attr}' en la línea {existing_symbol['line']}."
             )
         else:
-            current_symbols_dict[name] = {
+            symbol_entry = {
                 'type': type_val,
                 'line': lineno,
                 'scope_attr': declared_in_scope_name_attr
             }
+            if param_types is not None: # It's a function, store its parameter types
+                symbol_entry['param_types'] = param_types
+
+            current_symbols_dict[name] = symbol_entry
+
 
     def lookup_symbol(self, name):
         # Iterates from current scope outwards to global, using the active scope_stack

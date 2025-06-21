@@ -21,7 +21,7 @@ reserved = {
 }
 
 tokens = [
-    'ID', 'INT_NUM', 'FLOAT_NUM', 'STRING_LITERAL',
+    'ID', 'INT_NUM', 'FLOAT_NUM', 'STRING_LITERAL', # STRING_LITERAL ya está aquí
     'PLUS', 'MINUS', 'TIMES', 'DIVIDE', 'MOD',
     'EQ', 'NE', 'LT', 'GT', 'LE', 'GE',
     'AND', 'OR', 'EQUALS',
@@ -65,6 +65,11 @@ def t_FLOAT_NUM(t):
 def t_INT_NUM(t):
     r'\d+'
     t.value = int(t.value)
+    return t
+
+def t_STRING_LITERAL(t):
+    r'\"([^\\\n]|(\\.))*?\"'  # Maneja strings con escapes básicos, no saltos de línea dentro.
+    t.value = t.value[1:-1]  # Remueve las comillas
     return t
 
 # Ignorar espacios y tabs
