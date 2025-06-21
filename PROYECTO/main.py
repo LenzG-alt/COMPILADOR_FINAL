@@ -10,7 +10,11 @@ from SemanticAnalyzer import SemanticAnalyzer
 # SymbolTable is used by SemanticAnalyzer
 
 def run_compiler_pipeline():
-    base_dir = os.path.dirname(__file__) 
+    # Define file paths relative to the PROYECTO directory
+    # Assumes main.py is in PROYECTO and executed from parent of PROYECTO, or PROYECTO is in PYTHONPATH
+    # For simplicity, if running `python PROYECTO/main.py`, relative paths from PROYECTO are fine.
+
+    base_dir = os.path.dirname(__file__) # Gets the directory where main.py is located (PROYECTO)
 
     codigo_file_path = os.path.join(base_dir, "codigo.txt")
     tabla_sintactica_path = os.path.join(base_dir, "tabla_sintactica.csv")
@@ -63,7 +67,29 @@ def run_compiler_pipeline():
         return
 
     # `analizar_cadena` returns: historial, aceptado, error_info, ast_root
-    _, aceptado, error_info, ast_root = Parser.analizar_cadena(tabla, tokens, terminales, contenido)
+    historial_sintactico, aceptado, error_info, ast_root = Parser.analizar_cadena(tabla, tokens, terminales, contenido)
+
+    # Guardar el análisis sintáctico paso a paso en un archivo
+    output_dir = os.path.join(base_dir, "salida")
+    os.makedirs(output_dir, exist_ok=True)
+    analisis_sintactico_filepath = os.path.join(output_dir, "analisis_sintactico_paso_a_paso.txt")
+
+    try:
+        with open(analisis_sintactico_filepath, "w", encoding="utf-8") as f_analisis:
+            f_analisis.write("| Paso | Pila | Entrada | Acción |\n")
+            f_analisis.write("|------|------|---------|--------|\n")
+            if historial_sintactico:
+                for paso_info in historial_sintactico:
+                    # Escapar pipes dentro de los valores para no romper el formato Markdown de la tabla
+                    pila_escaped = paso_info['pila'].replace('|', '\\|')
+                    entrada_escaped = paso_info['entrada'].replace('|', '\\|')
+                    accion_escaped = paso_info['accion'].replace('|', '\\|')
+                    f_analisis.write(f"| {paso_info['paso']} | {pila_escaped} | {entrada_escaped} | {accion_escaped} |\n")
+            else:
+                f_analisis.write("|      |      |         |                |\n") # Fila vacía si no hay historial
+        print(f"Análisis sintáctico paso a paso guardado en: {analisis_sintactico_filepath}")
+    except IOError as e:
+        print(f"Error al escribir el archivo de análisis sintáctico: {e}")
 
     if not aceptado:
         print("Error en el análisis sintáctico.")
