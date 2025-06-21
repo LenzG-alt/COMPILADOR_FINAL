@@ -1,5 +1,5 @@
-;int;*;+;(;);$
+;INT_NUM;TIMES;PLUS;LPAREN;RPAREN;$
 E;T X;;;T X;;
-X;;; + E;;ε;ε
-T;int Y;; ;( E );; 
-Y;;* T;ε;;ε;ε
+X;;; PLUS E;;ε;ε
+T;INT_NUM Y;; ;LPAREN E RPAREN;; 
+Y;;TIMES T;ε;;ε;ε

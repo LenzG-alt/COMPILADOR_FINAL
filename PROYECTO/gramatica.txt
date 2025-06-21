@@ -1,28 +1,28 @@
 programa -> funciones
 
 funciones -> funcion funciones
-funciones -> ''
+funciones -> ε
 
 funcion -> tipo ID funcion_rest
-funcion -> main ( ) bloque
-funcion_rest -> inicializacion ;
-funcion_rest -> ( parametros ) bloque
+funcion -> MAIN LPAREN RPAREN bloque
+funcion_rest -> inicializacion SEMI
+funcion_rest -> LPAREN parametros RPAREN bloque
 
 parametros -> parametro parametros_rest
-parametros -> ''
+parametros -> ε
 
-parametros_rest -> , parametro parametros_rest
-parametros_rest -> ''
+parametros_rest -> COMMA parametro parametros_rest
+parametros_rest -> ε
 
 parametro -> tipo ID
 
-bloque -> { instrucciones }
+bloque -> LBRACE instrucciones RBRACE
 
 instrucciones -> instruccion instrucciones
-instrucciones -> ''
+instrucciones -> ε
 
-instruccion -> declaracion ;
-instruccion -> asignacion ;
+instruccion -> declaracion SEMI
+instruccion -> ID id_rhs_instruccion
 instruccion -> If
 instruccion -> While
 instruccion -> For
@@ -31,79 +31,82 @@ instruccion -> Print
 
 declaracion -> tipo ID inicializacion 
 
-inicializacion -> = exp 
-inicializacion -> ''
+inicializacion -> EQUALS exp 
+inicializacion -> ε
 
-asignacion -> ID = exp 
+id_rhs_instruccion -> EQUALS exp SEMI
+id_rhs_instruccion -> llamada_func SEMI
 
-If -> if ( exp ) bloque Else
+for_assignment -> ID EQUALS exp
 
-Else -> else bloque
-Else -> ''
+If -> IF LPAREN exp RPAREN bloque ELSE
 
-While -> while ( exp ) bloque
+Else -> ELSE bloque
+Else -> ε
 
-For -> for ( asignacion ; exp ; asignacion ) bloque
+While -> WHILE LPAREN exp RPAREN bloque
 
-Return -> return exp_opt ;
+For -> FOR LPAREN for_assignment SEMI exp SEMI for_assignment RPAREN bloque
+
+Return -> RETURN exp_opt SEMI
 
 exp_opt -> exp
-exp_opt -> ''
+exp_opt -> ε
 
-Print -> print ( exp ) ;
+Print -> PRINT LPAREN exp RPAREN SEMI
 
-tipo -> int
-tipo -> float
-tipo -> bool
-tipo -> string
-tipo -> void
+tipo -> INT
+tipo -> FLOAT
+tipo -> BOOL
+tipo -> STRING
+tipo -> VOID
 
 exp -> E
 
 E -> C E_rest
 
-E_rest -> || C E_rest
-E_rest -> ''
+E_rest -> OR C E_rest
+E_rest -> ε
 
 C -> R C_rest
 
-C_rest -> && R C_rest
-C_rest -> ''
+C_rest -> AND R C_rest
+C_rest -> ε
 
 R -> T R_rest
 
-R_rest -> == T R_rest
-R_rest -> != T R_rest
-R_rest -> < T R_rest
-R_rest -> > T R_rest
-R_rest -> <= T R_rest
-R_rest -> >= T R_rest
-R_rest -> ''
+R_rest -> EQ T R_rest
+R_rest -> NE T R_rest
+R_rest -> LT T R_rest
+R_rest -> GT T R_rest
+R_rest -> LE T R_rest
+R_rest -> GE T R_rest
+R_rest -> ε
 
 T -> F T_rest
 
-T_rest -> + F T_rest
-T_rest -> - F T_rest
-T_rest -> ''
+T_rest -> PLUS F T_rest
+T_rest -> MINUS F T_rest
+T_rest -> ε
 
 F -> A F_rest
 
-F_rest -> * A F_rest
-F_rest -> / A F_rest
-F_rest -> % A F_rest
-F_rest -> ''
+F_rest -> TIMES A F_rest
+F_rest -> DIVIDE A F_rest
+F_rest -> MOD A F_rest
+F_rest -> ε
 
-A -> ( exp )
+A -> LPAREN exp RPAREN
 A -> ID llamada_func
-A -> NUMERO
-A -> true
-A -> false
+A -> INT_NUM
+A -> TRUE
+A -> FALSE
 
-llamada_func -> ( lista_args )
-llamada_func -> ''
+llamada_func -> LPAREN lista_args RPAREN
+llamada_func -> ε
 
 lista_args -> exp lista_args_rest
-lista_args -> ''
+lista_args -> ε
 
-lista_args_rest -> , exp lista_args_rest
-lista_args_rest -> ''
+lista_args_rest -> COMMA exp lista_args_rest
+lista_args_rest -> ε

@@ -1,2 +1,1 @@
-int + int * int
-int + int
+5 + 34
