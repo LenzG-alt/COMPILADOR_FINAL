@@ -1,0 +1,6 @@
+int hola;
+int func(int a){ return; }
+main() {
+  int x;
+  int y;
+}
