@@ -103,7 +103,7 @@ def analizar_cadena(tabla, tokens, terminales, contenido):
     aceptado = True
     error_info = {}
 
-    LEXEME_TERMINALS = {"ID", "INT_NUM", "FLOAT_NUM", "STRING", "TRUE", "FALSE"}
+    LEXEME_TERMINALS = {"ID", "INT_NUM", "FLOAT_NUM", "STRING_LITERAL", "TRUE", "FALSE"}
 
     while len(stack) > 0:
         paso += 1

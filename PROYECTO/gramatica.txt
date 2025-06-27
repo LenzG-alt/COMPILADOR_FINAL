@@ -5,6 +5,7 @@ funciones -> ε
 
 funcion -> tipo ID funcion_rest
 funcion -> MAIN LPAREN RPAREN bloque
+
 funcion_rest -> inicializacion SEMI
 funcion_rest -> LPAREN parametros RPAREN bloque
 
@@ -22,47 +23,39 @@ instrucciones -> instruccion instrucciones
 instrucciones -> ε
 
 instruccion -> declaracion SEMI
-instruccion -> ID id_rhs_instruccion
-instruccion -> If
-instruccion -> While
 instruccion -> For
-instruccion -> Return
+instruccion -> If
 instruccion -> Print
+instruccion -> Return
+instruccion -> While
+instruccion -> ID id_rhs_instruccion
 
-declaracion -> tipo ID inicializacion 
-
-inicializacion -> EQUALS exp 
+declaracion -> tipo ID inicializacion
+inicializacion -> EQUALS exp
 inicializacion -> ε
 
 id_rhs_instruccion -> EQUALS exp SEMI
 id_rhs_instruccion -> llamada_func SEMI
 
-for_assignment -> ID EQUALS exp
 
 If -> IF LPAREN exp RPAREN bloque ELSE
-
+Print -> PRINT LPAREN exp RPAREN SEMI
 Else -> ELSE bloque
 Else -> ε
 
 While -> WHILE LPAREN exp RPAREN bloque
 
 For -> FOR LPAREN for_assignment SEMI exp SEMI for_assignment RPAREN bloque
+for_assignment -> ID EQUALS exp
 
 Return -> RETURN exp_opt SEMI
-
 exp_opt -> exp
 exp_opt -> ε
 
 Print -> PRINT LPAREN exp RPAREN SEMI
 
-tipo -> INT
-tipo -> FLOAT
-tipo -> BOOL
-tipo -> STRING
-tipo -> VOID
 
 exp -> E
-
 E -> C E_rest
 
 E_rest -> OR C E_rest
@@ -76,11 +69,11 @@ C_rest -> ε
 R -> T R_rest
 
 R_rest -> EQ T R_rest
-R_rest -> NE T R_rest
-R_rest -> LT T R_rest
+R_rest -> GE T R_rest
 R_rest -> GT T R_rest
 R_rest -> LE T R_rest
-R_rest -> GE T R_rest
+R_rest -> LT T R_rest
+R_rest -> NE T R_rest
 R_rest -> ε
 
 T -> F T_rest
@@ -96,17 +89,26 @@ F_rest -> DIVIDE A F_rest
 F_rest -> MOD A F_rest
 F_rest -> ε
 
-A -> LPAREN exp RPAREN
 A -> ID llamada_func
 A -> INT_NUM
+A -> LPAREN exp RPAREN
+A -> FLOAT_NUM
+A -> STRING_LITERAL
 A -> TRUE
 A -> FALSE
-
-llamada_func -> LPAREN lista_args RPAREN
-llamada_func -> ε
 
 lista_args -> exp lista_args_rest
 lista_args -> ε
 
 lista_args_rest -> COMMA exp lista_args_rest
 lista_args_rest -> ε
+
+llamada_func -> LPAREN lista_args RPAREN
+llamada_func -> ε
+
+
+tipo -> BOOL
+tipo -> FLOAT
+tipo -> INT
+tipo -> STRING
+tipo -> VOID

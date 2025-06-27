@@ -46,7 +46,7 @@ class SemanticAnalyzer:
             type_keyword_node = tipo_node.children[0]
             # Map from lexer token types (e.g., 'INT', 'FLOAT') to internal type names (e.g., 'int', 'float')
             # DEBUGGING:
-            print(f"DEBUG _get_node_type_str: tipo_node.value='{tipo_node.value}', child_value='{type_keyword_node.value if type_keyword_node else 'None'}'")
+            #print(f"DEBUG _get_node_type_str: tipo_node.value='{tipo_node.value}', child_value='{type_keyword_node.value if type_keyword_node else 'None'}'")
             type_mapping = {
                 'INT': 'int',
                 'FLOAT': 'float',
@@ -170,13 +170,23 @@ class SemanticAnalyzer:
                 # print(f"DEBUG Func Decl: Name='{func_name}', ReturnType='{func_return_type}' from TipoNode Child='{tipo_node_for_func.children[0].value if tipo_node_for_func.children else 'N/A'}'")
 
 
-                # Collect parameter types (must be done before adding function symbol if types are part of its signature)
-                param_types = self._collect_param_types(funcion_rest_node.children[1]) # visit parametros
-                if param_types == TYPE_ERROR: return TYPE_ERROR # Error during param type collection
+                # Collect parameter types and names
+                param_info = self._collect_param_info(funcion_rest_node.children[1]) # visit parametros
+                if param_info == TYPE_ERROR: return TYPE_ERROR
+
+                param_types = param_info['types']
+                param_names_ordered = param_info['names']
 
                 # Add function symbol (type includes return type and param types)
                 param_types_str = ", ".join(param_types).upper() if param_types else ""
-                self.symbol_table.add_symbol(func_name, f"FUNCTION ({param_types_str}) -> {func_return_type.upper()}", func_lineno, "global", param_types=param_types)
+                self.symbol_table.add_symbol(
+                    func_name,
+                    f"FUNCTION ({param_types_str}) -> {func_return_type.upper()}",
+                    func_lineno,
+                    "global",
+                    param_types=param_types,
+                    param_names_ordered=param_names_ordered # Store ordered names
+                )
 
                 self.current_function_name = func_name
                 self.current_function_return_type = func_return_type
@@ -192,8 +202,10 @@ class SemanticAnalyzer:
 
         return self._generic_visit(node) # Fallback
 
-    def _collect_param_types(self, parametros_node):
+    def _collect_param_info(self, parametros_node):
+        # Returns a dictionary {'types': [...], 'names': [...]} or TYPE_ERROR
         types = []
+        names = []
 
         # Current node can be 'parametros' or 'parametros_rest'
         # 'parametros' -> 'parametro' 'parametros_rest' | epsilon
@@ -234,25 +246,27 @@ class SemanticAnalyzer:
             if param_node_to_process and hasattr(param_node_to_process, 'value') and param_node_to_process.value == 'parametro' and \
                hasattr(param_node_to_process, 'children') and param_node_to_process.children and len(param_node_to_process.children) == 2:
                 tipo_node = param_node_to_process.children[0]
+                id_node = param_node_to_process.children[1] # This is the ID node
                 types.append(self._get_node_type_str(tipo_node))
+                names.append(id_node.value) # Store the name
             else:
                 err_lineno = -1
                 if param_node_to_process and hasattr(param_node_to_process, 'lineno'): err_lineno = param_node_to_process.lineno
-                elif node_iter and hasattr(node_iter, 'lineno'): err_lineno = node_iter.lineno # Fallback to list node
+                elif node_iter and hasattr(node_iter, 'lineno'): err_lineno = node_iter.lineno
                 self.symbol_table.add_error(f"Error semántico [línea {err_lineno}]: Estructura de parámetro inválida procesando '{param_node_to_process.value if param_node_to_process and hasattr(param_node_to_process, 'value') else 'Node?'}'.")
                 return TYPE_ERROR
 
-            node_iter = next_iter_node # Move to the next 'parametros_rest' or None
-            if not node_iter: # Reached end of list if next_iter_node was, for example, the epsilon from a final parametros_rest
+            node_iter = next_iter_node
+            if not node_iter:
                 break
-        return types
+        return {'types': types, 'names': names}
 
 
     def _visit_parametros(self, node):
         # This method is now primarily for adding params to symbol table within function scope.
-        # It iterates similarly to _collect_param_types but calls _visit on each 'parametro' node.
+        # It iterates similarly to _collect_param_info but calls _visit on each 'parametro' node.
 
-        node_iter = node # Initially Node('parametros')
+        node_iter = node
 
         while node_iter and node_iter.children and node_iter.children[0].value != 'ε':
             param_node_to_visit = None
@@ -297,9 +311,10 @@ class SemanticAnalyzer:
         # Children: [Node('tipo'), Node_with_lexeme_as_value (ID)]
         tipo_node_in_param = node.children[0] if node.children else None
         id_node_in_param = node.children[1] if node.children and len(node.children) > 1 else None
-        print(f"DEBUG _visit_parametro: ID='{id_node_in_param.value if id_node_in_param else 'N/A'}', TipoNode='{tipo_node_in_param.value if tipo_node_in_param else 'N/A'}'")
+        #print(f"DEBUG _visit_parametro: ID='{id_node_in_param.value if id_node_in_param else 'N/A'}', TipoNode='{tipo_node_in_param.value if tipo_node_in_param else 'N/A'}'")
         if tipo_node_in_param and tipo_node_in_param.children:
-            print(f"  DEBUG _visit_parametro: TipoNode child='{tipo_node_in_param.children[0].value}'")
+            print(" ")
+            #print(f"  DEBUG _visit_parametro: TipoNode child='{tipo_node_in_param.children[0].value}'")
         # print(f"DEBUG: _visit_parametro: node.value='{node.value if hasattr(node, 'value') else 'N/A'}' (type: {type(node).__name__}), node.lineno={node.lineno if hasattr(node, 'lineno') else 'N/A'}, num_children={len(node.children) if node.children else 'None'}")
         # if node.children:
         #     for i, child in enumerate(node.children):
@@ -431,13 +446,14 @@ class SemanticAnalyzer:
         # declaracion -> tipo ID inicializacion
         tipo_node_in_decl = node.children[0] if node.children else None
         id_node_in_decl = node.children[1] if node.children and len(node.children) > 1 else None
-        print(f"DEBUG _visit_declaracion: ID='{id_node_in_decl.value if id_node_in_decl else 'N/A'}', TipoNode='{tipo_node_in_decl.value if tipo_node_in_decl else 'N/A'}'")
+        #print(f"DEBUG _visit_declaracion: ID='{id_node_in_decl.value if id_node_in_decl else 'N/A'}', TipoNode='{tipo_node_in_decl.value if tipo_node_in_decl else 'N/A'}'")
         if tipo_node_in_decl and tipo_node_in_decl.children:
-            print(f"  DEBUG _visit_declaracion: TipoNode child='{tipo_node_in_decl.children[0].value}'")
+            print(" ")
+            #print(f"  DEBUG _visit_declaracion: TipoNode child='{tipo_node_in_decl.children[0].value}'")
 
 
         if node.children and len(node.children) == 3 and \
-           node.children[0] and node.children[0].value == 'tipo' and \
+            node.children[0] and node.children[0].value == 'tipo' and \
            node.children[1] and \
            node.children[2] and node.children[2].value == 'inicializacion':
 
@@ -708,112 +724,100 @@ class SemanticAnalyzer:
         return lhs_type
 
     def _visit_a(self, node):
-        # A -> LPAREN exp RPAREN | ID llamada_func | ID | INT_NUM | TRUE | FALSE | STRING_LITERAL (via lexeme value)
+        # node es el nodo 'A'
+        # node.children[0] es el nodo terminal (ID, TRUE, STRING_LITERAL, etc.)
+        # cuyo .value ha sido establecido al lexema por el parser.
 
-        # DEBUGGING:
-        # print(f"DEBUG _visit_a: Node '{node.value}' (lineno {node.lineno}), num_children: {len(node.children) if node.children else 0}")
-        # if node.children:
-        #     for i, child in enumerate(node.children):
-        #         print(f"  Child {i}: value='{child.value}', type='{type(child.value).__name__}'")
-        #         if hasattr(child, 'children') and child.children:
-        #              print(f"    Grandchildren: {[gc.value for gc in child.children]}")
-        # END DEBUGGING
-
-        if not node.children or len(node.children) == 0:
+        if not node.children:
             self.symbol_table.add_error(f"Error semántico [línea {node.lineno if node else -1}]: Nodo 'A' sin hijos.")
             return TYPE_ERROR
 
-        first_child = node.children[0]
-        # print(f"DEBUG _visit_a: first_child.value='{first_child.value}', type={type(first_child.value)}, lineno={first_child.lineno}")
+        terminal_node = node.children[0]
+        lexeme = terminal_node.value # Este es el lexema o valor numérico
+        lexeme_lineno = terminal_node.lineno
 
-        if first_child.value == 'LPAREN': # LPAREN exp RPAREN
-            if len(node.children) == 3 and node.children[1].value == 'exp' and node.children[2].value == 'RPAREN':
-                return self._visit(node.children[1]) # Type of enclosed expression
+        # Primero, verificar si es un literal numérico (ya convertido por el lexer)
+        if isinstance(lexeme, int):
+            return 'int'
+        if isinstance(lexeme, float):
+            return 'float'
+
+        # Si es LPAREN exp RPAREN
+        # El .value del nodo LPAREN no es sobreescrito por LEXEME_TERMINALS.
+        if lexeme == 'LPAREN':
+            if len(node.children) == 3 and \
+               hasattr(node.children[1], 'value') and node.children[1].value == 'exp' and \
+               hasattr(node.children[2], 'value') and node.children[2].value == 'RPAREN':
+                return self._visit(node.children[1]) # Tipo de la expresión encerrada
             else:
-                self.symbol_table.add_error(f"Error semántico [línea {first_child.lineno}]: Paréntesis desbalanceados o expresión faltante.")
+                self.symbol_table.add_error(f"Error semántico [línea {lexeme_lineno}]: Paréntesis desbalanceados o expresión faltante.")
                 return TYPE_ERROR
 
-        if isinstance(first_child.value, int): return 'int'
-        if isinstance(first_child.value, float): return 'float'
-        if isinstance(first_child.value, bool): return 'bool'
-
-        if isinstance(first_child.value, str): # Could be ID or string literal (if parser makes it so)
-            id_name = first_child.value # This is the ID lexeme or string content
-            id_lineno = first_child.lineno
-            symbol_info = self.symbol_table.lookup_symbol(id_name)
-
-            is_actual_call = False
-            if len(node.children) > 1 and node.children[1].value == 'llamada_func':
-                llamada_func_node = node.children[1]
-                # Check if llamada_func is epsilon (empty children or child is epsilon node)
-                # or a real call (children are LPAREN, lista_args, RPAREN)
-                if llamada_func_node.children and llamada_func_node.children[0].value != 'ε':
-                    # This means llamada_func -> LPAREN lista_args RPAREN
-                    is_actual_call = True
-
-            if is_actual_call:
-                # This is an actual function call
-                if symbol_info is None or not symbol_info['type'].startswith("FUNCTION"):
-                    self.symbol_table.add_error(f"Error semántico [línea {id_lineno}]: '{id_name}' no es una función declarada o no se puede llamar.")
-                    return TYPE_ERROR
-
-                # Function call: ID LPAREN lista_args RPAREN
-                # symbol_info['type'] is like "FUNCTION (INT, FLOAT) -> VOID"
-                # symbol_info['param_types'] is like ['int', 'float']
-                expected_param_types = symbol_info.get('param_types', [])
-
-                llamada_func_node = node.children[1] # Node('llamada_func')
-
-                # Ensure llamada_func_node has the expected structure for a call (LPAREN lista_args RPAREN)
-                # This was already implicitly checked by is_actual_call logic, but an explicit structural check here is safer.
-                if not (llamada_func_node.children and \
-                        len(llamada_func_node.children) == 3 and \
-                        llamada_func_node.children[0].value == 'LPAREN' and \
-                        llamada_func_node.children[1].value == 'lista_args' and \
-                        llamada_func_node.children[2].value == 'RPAREN'):
-                     self.symbol_table.add_error(f"Error semántico [línea {id_lineno}]: Llamada a función '{id_name}' mal formada (estructura interna).")
-                     return TYPE_ERROR
-
-                lista_args_node = llamada_func_node.children[1] # Node('lista_args')
-                actual_arg_types = self._collect_arg_types(lista_args_node)
-                if actual_arg_types == TYPE_ERROR: return TYPE_ERROR
-
-                if len(actual_arg_types) != len(expected_param_types):
-                    self.symbol_table.add_error(f"Error de tipo [línea {id_lineno}]: La función '{id_name}' esperaba {len(expected_param_types)} argumentos, pero recibió {len(actual_arg_types)}.")
-                    return TYPE_ERROR
-
-                for i, (expected, actual) in enumerate(zip(expected_param_types, actual_arg_types)):
-                    if not self._check_assignment_compatibility(expected, actual, id_lineno, f"argumento {i+1} de '{id_name}'"):
-                        # _check_assignment_compatibility already adds error
-                        return TYPE_ERROR
-
-                # Extract return type from "FUNCTION (...) -> RETURN_TYPE"
-                return_type_str = symbol_info['type'].split(' -> ')[-1].lower()
-                return return_type_str if return_type_str else TYPE_ERROR # Should always have return type
-
-            elif symbol_info: # It's an ID (variable), or a function name used as var (is_actual_call is False)
-                if symbol_info['type'].startswith("FUNCTION"):
-                    # Using function name as a variable without calling it (e.g. `myFunc + 1`)
-                    # This is an error because is_actual_call is False.
-                    self.symbol_table.add_error(f"Error semántico [línea {id_lineno}]: El nombre de función '{id_name}' se usó como variable.")
-                    return TYPE_ERROR
-                return symbol_info['type'] # Type of the variable
-
-            else: # Not an actual call, and not in symbol table.
-                  # This means id_name is an undeclared identifier.
-                  # String literals need a different handling based on parser output.
-                  # If parser creates a node with original_token_type='STRING_LITERAL', we'd check that.
-                  # Lacking that, if it's a string and not a known ID, it's an undeclared ID.
-                self.symbol_table.add_error(f"Error semántico [línea {id_lineno}]: Identificador no declarado '{id_name}'.")
-                return TYPE_ERROR
-            # This `else` means `isinstance(first_child.value, str)` was false, and it wasn't int/float/bool/LPAREN.
-            # This shouldn't happen with the given grammar for A.
-            self.symbol_table.add_error(f"Error Interno: Tipo de operando desconocido en 'A': '{first_child.value}' (tipo {type(first_child.value).__name__}) en línea {first_child.lineno}.")
+        # Ahora, lexeme debe ser una cadena. Puede ser de TRUE, FALSE, ID, o STRING_LITERAL.
+        if not isinstance(lexeme, str):
+            self.symbol_table.add_error(f"Error Interno: Tipo de lexema inesperado en 'A': '{lexeme}' (tipo {type(lexeme).__name__}) en línea {lexeme_lineno}.")
             return TYPE_ERROR
 
-        # Fallback for any other structure of A not covered.
-        self.symbol_table.add_error(f"Error semántico [línea {node.lineno if node else -1}]: Estructura de operando 'A' inválida.")
-        return TYPE_ERROR
+        # Manejar literales booleanos explícitamente por su lexema
+        if lexeme == "true":
+            return 'bool'
+        if lexeme == "false":
+            return 'bool'
+
+        # En este punto, el lexema es una cadena que no es "true" ni "false".
+        # Podría ser un ID o el contenido de un STRING_LITERAL.
+
+        is_function_call_syntax = False
+        if len(node.children) > 1 and hasattr(node.children[1], 'value') and node.children[1].value == 'llamada_func':
+            llamada_func_node = node.children[1]
+            if llamada_func_node.children and hasattr(llamada_func_node.children[0], 'value') and llamada_func_node.children[0].value != 'ε':
+                is_function_call_syntax = True
+
+        if is_function_call_syntax:
+            func_name = lexeme
+            symbol_info = self.symbol_table.lookup_symbol(func_name)
+
+            if symbol_info is None or not symbol_info['type'].startswith("FUNCTION"):
+                self.symbol_table.add_error(f"Error semántico [línea {lexeme_lineno}]: '{func_name}' no es una función declarada o no se puede llamar.")
+                return TYPE_ERROR
+
+            expected_param_types = symbol_info.get('param_types', [])
+            llamada_func_node = node.children[1]
+
+            if not (llamada_func_node.children and \
+                    len(llamada_func_node.children) == 3 and \
+                    hasattr(llamada_func_node.children[0], 'value') and llamada_func_node.children[0].value == 'LPAREN' and \
+                    hasattr(llamada_func_node.children[1], 'value') and llamada_func_node.children[1].value == 'lista_args' and \
+                    hasattr(llamada_func_node.children[2], 'value') and llamada_func_node.children[2].value == 'RPAREN'):
+                 self.symbol_table.add_error(f"Error semántico [línea {lexeme_lineno}]: Llamada a función '{func_name}' mal formada.")
+                 return TYPE_ERROR
+
+            lista_args_node = llamada_func_node.children[1]
+            actual_arg_types = self._collect_arg_types(lista_args_node)
+            if actual_arg_types == TYPE_ERROR: return TYPE_ERROR
+
+            if len(actual_arg_types) != len(expected_param_types):
+                self.symbol_table.add_error(f"Error de tipo [línea {lexeme_lineno}]: La función '{func_name}' esperaba {len(expected_param_types)} argumentos, pero recibió {len(actual_arg_types)}.")
+                return TYPE_ERROR
+
+            for i, (expected, actual) in enumerate(zip(expected_param_types, actual_arg_types)):
+                if not self._check_assignment_compatibility(expected, actual, lexeme_lineno, f"argumento {i+1} de '{func_name}'"):
+                    return TYPE_ERROR
+
+            return_type_str = symbol_info['type'].split(' -> ')[-1].lower()
+            return return_type_str if return_type_str else TYPE_ERROR
+        else:
+            # No es una llamada a función. El lexema es un ID o un STRING_LITERAL.
+            symbol_info = self.symbol_table.lookup_symbol(lexeme)
+            if symbol_info:
+                if symbol_info['type'].startswith("FUNCTION"):
+                    self.symbol_table.add_error(f"Error semántico [línea {lexeme_lineno}]: El nombre de función '{lexeme}' se usó como variable sin llamarla.")
+                    return TYPE_ERROR
+                return symbol_info['type']
+            else:
+                # No es "true", "false", no es una llamada, no es un ID declarado.
+                # Por la gramática A -> STRING_LITERAL, este debe ser el caso.
+                return 'string'
 
     def _collect_arg_types(self, lista_args_node):
         # lista_args -> exp lista_args_rest | ε
@@ -1042,75 +1046,9 @@ class SemanticAnalyzer:
                 return TYPE_ERROR
         return 'void' # Epsilon case means effectively void type for return context
 
-    # Add more _visit_xxx methods as needed for other non-terminals or specific terminals
-    # that require special handling (e.g., _visit_declaracion, _visit_id for usage).
 
     def get_symbol_table_formatted(self):
         return self.symbol_table.get_formatted_symbol_table()
 
     def get_errors_formatted(self):
         return self.symbol_table.get_formatted_errors()
-
-if __name__ == '__main__':
-    # This part requires a mock AST or integration with the Parser to be truly testable.
-    # For now, we can test if the class instantiates.
-
-    # Mock Node class for basic testing if Parser.Node is not available
-    class MockNode:
-        def __init__(self, value, children=None, lineno=-1, original_token_type=None): # Added original_token_type
-            self.value = value
-            self.children = children if children else []
-            self.lineno = lineno
-            self.original_token_type = original_token_type
-
-
-    # Example Mock AST: programa -> funciones -> funcion (as global int x;) -> funciones (epsilon)
-    #                      -> funcion (main() {}) -> funciones (epsilon)
-
-    # Global var: int x;
-    node_int_kw = MockNode("INT", lineno=1) # Node for the keyword INT
-    node_tipo_int = MockNode("tipo", [node_int_kw], lineno=1)
-    node_id_x = MockNode("x", [], lineno=1, original_token_type='ID') # Value is lexeme 'x'
-    node_epsilon_init = MockNode("ε", lineno=1)
-    node_inicializacion_eps = MockNode("inicializacion", [node_epsilon_init], lineno=1)
-    node_semi_global = MockNode("SEMI", lineno=1)
-    node_func_rest_global = MockNode("funcion_rest", [node_inicializacion_eps, node_semi_global], lineno=1)
-    global_var_decl_func_node = MockNode("funcion", [node_tipo_int, node_id_x, node_func_rest_global], lineno=1)
-
-    # Main function: main() {}
-    node_main_kw = MockNode("MAIN", lineno=2)
-    node_lparen = MockNode("LPAREN", lineno=2)
-    node_rparen = MockNode("RPAREN", lineno=2)
-    node_lbrace = MockNode("LBRACE", lineno=2)
-    node_rbrace = MockNode("RBRACE", lineno=2)
-    node_instr_eps = MockNode("instrucciones", [MockNode("ε", lineno=2)], lineno=2)
-    node_bloque_main = MockNode("bloque", [node_lbrace, node_instr_eps, node_rbrace], lineno=2)
-    main_func_node = MockNode("funcion", [node_main_kw, node_lparen, node_rparen, node_bloque_main], lineno=2)
-
-    # Funciones chain
-    epsilon_funciones1 = MockNode("funciones", [MockNode("ε", lineno=3)], lineno=3)
-    funciones_for_main = MockNode("funciones", [main_func_node, epsilon_funciones1], lineno=2)
-    funciones_for_global_var = MockNode("funciones", [global_var_decl_func_node, funciones_for_main], lineno=1)
-
-    # Programa root
-    programa_node = MockNode("programa", [funciones_for_global_var], lineno=1)
-
-    print("--- Basic SemanticAnalyzer Instantiation Test ---")
-    analyzer = SemanticAnalyzer(programa_node)
-    print("SemanticAnalyzer instantiated.")
-
-    # Call analyze - it will only traverse due to placeholder visit methods
-    print("\n--- Running analyze (expecting traversal via generic_visit or basic placeholders) ---")
-    analyzer.analyze()
-    print("analyze() completed.")
-
-    print("\n--- Initial Symbol Table (should be empty or global only) ---")
-    print(analyzer.get_symbol_table_formatted())
-
-    print("\n--- Initial Errors (should be empty or 'No AST' if root was None) ---")
-    print(analyzer.get_errors_formatted())
-
-    print("\n--- Test with None AST ---")
-    analyzer_none = SemanticAnalyzer(None)
-    analyzer_none.analyze()
-    print(analyzer_none.get_errors_formatted())

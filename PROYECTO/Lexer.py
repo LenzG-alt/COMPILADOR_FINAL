@@ -58,7 +58,7 @@ def t_ID(t):
 
 # Otros tokens simples...
 def t_FLOAT_NUM(t):
-    r'\d+\.\d+'
+    r'((\d*\.\d+)|(\d+\.\d*))([eE][-+]?\d+)?|\d+[eE][-+]?\d+'
     t.value = float(t.value)
     return t
 

@@ -67,7 +67,29 @@ def run_compiler_pipeline():
         return
 
     # `analizar_cadena` returns: historial, aceptado, error_info, ast_root
-    _, aceptado, error_info, ast_root = Parser.analizar_cadena(tabla, tokens, terminales, contenido)
+    historial_sintactico, aceptado, error_info, ast_root = Parser.analizar_cadena(tabla, tokens, terminales, contenido)
+
+    # Guardar el análisis sintáctico paso a paso en un archivo
+    output_dir = os.path.join(base_dir, "salida")
+    os.makedirs(output_dir, exist_ok=True)
+    analisis_sintactico_filepath = os.path.join(output_dir, "analisis_sintactico_paso_a_paso.txt")
+
+    try:
+        with open(analisis_sintactico_filepath, "w", encoding="utf-8") as f_analisis:
+            f_analisis.write("| Paso | Pila | Entrada | Acción |\n")
+            f_analisis.write("|------|------|---------|--------|\n")
+            if historial_sintactico:
+                for paso_info in historial_sintactico:
+                    # Escapar pipes dentro de los valores para no romper el formato Markdown de la tabla
+                    pila_escaped = paso_info['pila'].replace('|', '\\|')
+                    entrada_escaped = paso_info['entrada'].replace('|', '\\|')
+                    accion_escaped = paso_info['accion'].replace('|', '\\|')
+                    f_analisis.write(f"| {paso_info['paso']} | {pila_escaped} | {entrada_escaped} | {accion_escaped} |\n")
+            else:
+                f_analisis.write("|      |      |         |                |\n") # Fila vacía si no hay historial
+        print(f"Análisis sintáctico paso a paso guardado en: {analisis_sintactico_filepath}")
+    except IOError as e:
+        print(f"Error al escribir el archivo de análisis sintáctico: {e}")
 
     if not aceptado:
         print("Error en el análisis sintáctico.")
@@ -106,6 +128,38 @@ def run_compiler_pipeline():
 
     print("\n" + symbol_table_output)
     print("\n" + semantic_errors_output)
+
+    # 5. Generación de Código SPIM (si no hay errores semánticos graves)
+    # Check if there are errors. analyzer.symbol_table.errors is a list.
+    # We might allow proceeding if only warnings, but for now, stop on any error.
+    if not analyzer.symbol_table.errors: # or check a specific error severity
+        print("\n--- Fase de Generación de Código SPIM ---")
+        try:
+            # Ensure CodeGeneratorSPIM is imported
+            from CodeGeneratorSPIM import CodeGeneratorSPIM
+
+            code_generator = CodeGeneratorSPIM(ast_root, analyzer.symbol_table)
+            spim_code = code_generator.generate_code()
+
+            output_asm_path = os.path.join(output_dir, "output.asm")
+            with open(output_asm_path, "w", encoding="utf-8") as f_asm:
+                f_asm.write(spim_code)
+            print(f"✅ Código SPIM generado en: {output_asm_path}")
+
+            # Optionally print SPIM code to console
+            # print("\n--- Código SPIM Generado ---")
+            # print(spim_code)
+            # print("--------------------------")
+
+        except ImportError:
+            print("Error: No se pudo importar CodeGeneratorSPIM. Asegúrate que el archivo existe y está accesible.")
+        except Exception as e:
+            print(f"Error durante la generación de código SPIM: {e}")
+            import traceback
+            traceback.print_exc()
+    else:
+        print("\nNo se generará código SPIM debido a errores semánticos.")
+
 
     print("\n--- Compilador Finalizado ---")
 
