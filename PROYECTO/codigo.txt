@@ -1,9 +1,0 @@
-// Casos de prueba SUPER SIMPLIFICADOS para el analizador semántico
-// Intentando evitar errores de parsing de FLOAT_NUM y STRING_LITERAL.
-
-bool x = true;
-string z = "asda";
-bool y = false;
-main() {
-  
-}
