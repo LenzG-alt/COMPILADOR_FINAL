@@ -1,0 +1,100 @@
+// Pruebas para Funciones Definidas por el Usuario
+
+int g_func_test = 77;
+
+// Función void sin parámetros
+void func_v_v() {
+    print(1001); // Identificador de función
+    g_func_test = 88; // Modificar global
+}
+
+// Función int con parámetros int
+int func_i_ii(int p1, int p2) {
+    print(1002); // Identificador
+    print(p1);
+    print(p2);
+    int resultado;
+    resultado = p1 + p2 + g_func_test;
+    return resultado;
+}
+
+// Función float con parámetros float
+float func_f_ff(float fp1, float fp2) {
+    print(1.003); // Identificador (float para distinguir)
+    print(fp1);
+    print(fp2);
+    float res_f;
+    res_f = fp1 * fp2; // Usa g_func_test (int) en contexto float
+    return res_f;
+}
+
+// Función bool con un parámetro bool y uno int
+bool func_b_bi(bool bp1, int ip1) {
+    print(1004);
+    print(bp1);
+    print(ip1);
+    if (bp1 && (ip1 > 10)) {
+        return true;
+    }
+    return false;
+}
+
+// Función que llama a otra
+int func_caller(int x) {
+    print(1005);
+    int y;
+    y = func_i_ii(x, x*2) + g_func_test; // g_func_test debería ser 88 aquí
+    return y;
+}
+
+// Función con return en medio
+int func_early_return(int val) {
+    print(1006);
+    if (val < 0) {
+        return 1;
+    }
+    print(val); // Solo se imprime si val >= 0
+    return val * 2;
+}
+
+
+main() {
+    int res_i;
+    float res_f;
+    bool res_b;
+
+    print(80000); // Separador
+
+    // Llamada a func_v_v
+    func_v_v(); // Imprime 1001, g_func_test ahora es 88
+    print(g_func_test); // Debería imprimir 88
+
+    // Llamada a func_i_ii
+    res_i = func_i_ii(10, 20); // 10 + 20 + 88 = 118
+    print(res_i); // 118
+
+    
+    print(res_f); // -78.0
+
+    // Llamada a func_b_bi
+    res_b = func_b_bi(true, 15); // true && (15 > 10) -> true
+    print(res_b); // 1
+    res_b = func_b_bi(true, 5);  // true && (5 > 10) -> false
+    print(res_b); // 0
+
+    // Llamada a func_caller
+    // Dentro de func_caller, se llama func_i_ii(5, 10)
+    // func_i_ii retorna: 5 + 10 + 88 (g_func_test) = 103
+    // func_caller retorna: 103 + 88 (g_func_test) = 191
+    res_i = func_caller(5);
+    print(res_i); // 191
+
+    // Llamada a func_early_return
+    res_i = func_early_return(5); // Retorna -1
+    print(res_i); // -1
+
+    res_i = func_early_return(7); // Imprime 7, retorna 14
+    print(res_i); // 14
+
+    print(80001);
+}
