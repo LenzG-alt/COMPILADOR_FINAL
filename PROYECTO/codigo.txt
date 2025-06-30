@@ -1,7 +1,0 @@
-int x = 42;
-int funcion(int a, int b){
-    return a;
-}
-main(){
-    print();
-}
