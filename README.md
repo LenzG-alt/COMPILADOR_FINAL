@@ -1,8 +1,8 @@
-# Compilador Simple para Lenguaje Imperativo
+# Compilador
 
 ## Descripción
 
-Este proyecto implementa un compilador simple para un lenguaje imperativo de alto nivel. El compilador toma como entrada código fuente escrito en este lenguaje y genera código ensamblador SPIM MIPS como salida. El proceso de compilación incluye análisis léxico, análisis sintáctico (con construcción de Árbol de Sintaxis Abstracta - AST), análisis semántico (incluyendo la gestión de una tabla de símbolos y verificación de tipos) y generación de código intermedio/final.
+Este proyecto implementa un compilador simple. El compilador toma como entrada código fuente escrito en este lenguaje y genera código ensamblador SPIM MIPS como salida. El proceso de compilación incluye análisis léxico, análisis sintáctico (con construcción de Árbol de Sintaxis Abstracta - AST), análisis semántico (incluyendo la gestión de una tabla de símbolos y verificación de tipos) y generación de código intermedio/final.
 
 ## Componentes del Compilador
 
@@ -118,16 +118,4 @@ El compilador está estructurado en varios módulos Python, cada uno responsable
     pip install graphviz
     ```
     (La instalación de Graphviz a nivel de sistema operativo varía: `sudo apt-get install graphviz` en Debian/Ubuntu, `brew install graphviz` en macOS, o descarga desde el sitio oficial para Windows).
-
-## Posibles Mejoras Futuras
-
--   Optimización del código SPIM generado.
--   Soporte para arrays y/o estructuras de datos más complejas.
--   Mejoras en el manejo de errores y recuperación.
--   Implementación de un sistema de tipos más avanzado (e.g., inferencia de tipos, polimorfismo).
--   Generación de código para otras arquitecturas.
--   Soporte para características orientadas a objetos.
--   Interfaz gráfica de usuario (GUI) o interfaz de línea de comandos (CLI) más robusta.
--   Incorporación de fases de optimización de código intermedio.
--   Mejora de la estructura del analizador semántico (actualmente en `AnalizadorSintactico.py`).
 ```
